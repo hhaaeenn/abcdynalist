@@ -45,7 +45,10 @@ class QuickFinderController extends Controller
 
         $candidates = Item::where('user_id', $user->id)
             ->whereRaw([
-                'content' => new \MongoDB\BSON\Regex($q, 'i'),
+                '$or' => [
+                    ['content' => new \MongoDB\BSON\Regex($q, 'i')],
+                    ['note' => new \MongoDB\BSON\Regex($q, 'i')],
+                ],
             ])
             ->take(100)
             ->get();
@@ -67,7 +70,10 @@ class QuickFinderController extends Controller
         if (! empty($data['include_items']) && $data['include_items'] !== 'false' && $data['include_items'] !== '0') {
             $items = Item::where('user_id', $user->id)
                 ->whereRaw([
-                    'content' => new \MongoDB\BSON\Regex($q, 'i'),
+                    '$or' => [
+                        ['content' => new \MongoDB\BSON\Regex($q, 'i')],
+                        ['note' => new \MongoDB\BSON\Regex($q, 'i')],
+                    ],
                 ])
                 ->orderBy('content')
                 ->take(20)
@@ -102,7 +108,10 @@ class QuickFinderController extends Controller
 
         $items = Item::where('user_id', $user->id)
             ->whereRaw([
-                'content' => new \MongoDB\BSON\Regex($q, 'i'),
+                '$or' => [
+                    ['content' => new \MongoDB\BSON\Regex($q, 'i')],
+                    ['note' => new \MongoDB\BSON\Regex($q, 'i')],
+                ],
             ])
             ->orderBy('content')
             ->take(30)

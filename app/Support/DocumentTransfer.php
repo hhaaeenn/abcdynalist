@@ -7,22 +7,32 @@ class DocumentTransfer
     /**
      * @param  array  $ordered  Flat DFS list from ShareController::buildOrdered
      */
-    public static function toMarkdown(string $title, array $ordered): string
+    public static function toMarkdown(string $title, array $ordered, string $indentStyle = 'spaces'): string
     {
         $lines = ["# ".$title, ''];
 
         foreach ($ordered as $item) {
-            $indent = str_repeat('  ', $item->depth);
-            $prefix = self::bulletPrefix($item);
+            $indent = self::indentFor($item->depth, $indentStyle);
+            $prefix = self::bulletPrefix($item, $indentStyle);
 
             $lines[] = $indent.$prefix.$item->content;
 
             if ($item->note !== '') {
-                $lines[] = $indent.'    > '.str_replace("\n", "\n".$indent.'    > ', $item->note);
+                $notePad = $indentStyle === 'none' ? '' : '    ';
+                $lines[] = $indent.$notePad.'> '.str_replace("\n", "\n".$indent.$notePad.'> ', $item->note);
             }
         }
 
         return implode("\n", $lines)."\n";
+    }
+
+    private static function indentFor(int $depth, string $style): string
+    {
+        if ($style === 'none') {
+            return '';
+        }
+
+        return str_repeat('  ', $depth);
     }
 
     public static function fromMarkdown(string $text): array
@@ -245,19 +255,21 @@ class DocumentTransfer
         ];
     }
 
-    private static function bulletPrefix($item): string
+    private static function bulletPrefix($item, string $indentStyle = 'spaces'): string
     {
         if ($item->heading > 0) {
             return str_repeat('#', $item->heading).' ';
         }
 
+        $marker = $indentStyle === 'asterisks' ? '*' : '-';
+
         switch ($item->bullet) {
             case 'numbered':
                 return '1. ';
             case 'checklist':
-                return $item->checked ? '- [x] ' : '- [ ] ';
+                return $item->checked ? $marker.' [x] ' : $marker.' [ ] ';
             default:
-                return '- ';
+                return $marker.' ';
         }
     }
 

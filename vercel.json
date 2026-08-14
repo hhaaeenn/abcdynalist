@@ -1,6 +1,52 @@
 {
-  "version": 2,
-  "buildCommand": "npm run build",
-  "outputDirectory": "public/build",
-  "installCommand": "npm install"
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "regions": [
+        "hnd1"
+    ],
+    "builds": [
+        {
+            "src": "/api/index.php",
+            "use": "vercel-php@0.7.4"
+        },
+        {
+            "src": "/public/**",
+            "use": "@vercel/static"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/build/assets/(.*)",
+            "dest": "/public/build/assets/$1"
+        },
+        {
+            "src": "/favicon.(.*)",
+            "dest": "/public/favicon.$1"
+        },
+        {
+            "src": "/apple-touch-icon.png",
+            "dest": "/public/apple-touch-icon.png"
+        },
+        {
+            "src": "/robots.txt",
+            "dest": "/public/robots.txt"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "/api/index.php"
+        }
+    ],
+    "env": {
+        "APP_NAME": "ABCLIST",
+        "APP_DEBUG": "false",
+        "APP_CONFIG_CACHE": "/tmp/config.php",
+        "APP_EVENTS_CACHE": "/tmp/events.php",
+        "APP_PACKAGES_CACHE": "/tmp/packages.php",
+        "APP_ROUTES_CACHE": "/tmp/routes.php",
+        "APP_SERVICES_CACHE": "/tmp/services.php",
+        "CACHE_DRIVER": "array",
+        "CACHE_STORE": "array",
+        "LOG_CHANNEL": "stderr",
+        "SESSION_DRIVER": "database",
+        "VIEW_COMPILED_PATH": "/tmp"
+    }
 }

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ $document->name }} · Dynalist</title>
+    <title>{{ $document->name }} · ABCLIST</title>
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; background: #faf9f8; color: #24221f; font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -26,6 +26,7 @@
         .sh-note { margin-top: 2px; font-size: 12.5px; color: #8a857e; white-space: pre-wrap; }
         .sh-tag, .sh-date { color: #c07a12; }
         .sh-link { color: #2563eb; text-decoration: none; }
+        .sh-img { max-width: 100%; height: auto; border-radius: 6px; margin: 4px 0; display: block; }
         .sh-internal { color: #7c3aed; }
         code { background: #f1efec; border-radius: 3px; padding: 0 3px; font-size: 12.5px; }
         mark { background: #fff3db; padding: 0 3px; border-radius: 3px; }
@@ -37,6 +38,7 @@
         .sh-gate button { width: 100%; padding: 10px; border: 0; border-radius: 8px; background: #c07a12; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
         .sh-gate .err { color: #dc2626; font-size: 12.5px; margin-bottom: 10px; }
         .sh-gate .hint { margin-top: 12px; font-size: 12px; color: #b5b0a9; }
+        .sh-doc-head { font-size: 16px; font-weight: 600; color: #24221f; margin: 18px 0 6px; padding-bottom: 6px; border-bottom: 1px solid #efedea; }
     </style>
 </head>
 <body>
@@ -51,18 +53,23 @@
                 <input type="password" name="password" placeholder="Masukkan kata sandi" autofocus>
                 <button type="submit">Buka</button>
             </form>
-            <div class="hint">Diterbitkan dari Dynalist</div>
+            <div class="hint">Diterbitkan dari ABCLIST</div>
         </div>
     @else
         <div class="sh-head">
             <h1>{{ $document->name }}</h1>
-            <p>Diterbitkan dari Dynalist · mode baca saja</p>
+            <p>Diterbitkan dari ABCLIST · mode baca saja</p>
         </div>
         <div class="sh-body">
             @if (count($ordered) === 0)
-                <div class="sh-empty">Dokumen ini masih kosong.</div>
+                <div class="sh-empty">{{ $isFolder ? 'Folder ini belum berisi dokumen.' : 'Dokumen ini masih kosong.' }}</div>
             @else
+                @php $lastDocId = null; @endphp
                 @foreach ($ordered as $item)
+                    @if ($isFolder && $item->doc_id !== $lastDocId)
+                        @php $lastDocId = $item->doc_id; @endphp
+                        <div class="sh-doc-head">{{ $item->doc_name }}</div>
+                    @endif
                     @php
                         $bulletType = $item->bullet === 'bullet' ? 'bullet' : ($item->bullet === 'numbered' ? 'numbered' : 'checklist');
                         $headingCls = match ($item->heading) { 1 => 'h1', 2 => 'h2', 3 => 'h3', default => '' };

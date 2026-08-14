@@ -102,21 +102,20 @@ function jump(it) {
 }
 
 async function runSearch(q) {
-    if (!q.trim()) {
+    const { filter, q: clean } = parseTypeFilter(q);
+    if (!clean.trim()) {
         items = [];
         activeIndex = -1;
         render();
-        emptyEl.textContent = currentMode === 'document' || currentMode === 'move'
-            ? 'Mulai mengetik untuk mencari dokumen Anda.'
-            : 'Mulai mengetik untuk mencari item.';
+        setEmptyHint(currentMode);
         return;
     }
     const endpoint = currentMode === 'document'
-        ? `/search?q=${encodeURIComponent(q.trim())}&include_items=true`
-        : `/finder/items?q=${encodeURIComponent(q.trim())}`;
+        ? `/search?q=${encodeURIComponent(clean.trim())}&include_items=true`
+        : `/finder/items?q=${encodeURIComponent(clean.trim())}`;
     try {
         const data = await api.get(endpoint);
-        items = data.data || [];
+        items = (data.data || []).filter((it) => !filter || it.type === filter);
         activeIndex = items.length ? 0 : -1;
         render();
     } catch {
@@ -125,6 +124,25 @@ async function runSearch(q) {
         render();
         emptyEl.textContent = 'Gagal mencari. Coba lagi.';
     }
+}
+
+function parseTypeFilter(q) {
+    const m = q.match(/\btype:([a-z]+)\b/i);
+    if (!m) return { filter: null, q };
+    const map = { doc: 'document', document: 'document', item: 'item', folder: 'folder' };
+    return { filter: map[m[1].toLowerCase()] || null, q: q.replace(m[0], '').trim() };
+}
+
+function setEmptyHint(mode) {
+    emptyEl.innerHTML = '';
+    const t = document.createElement('div');
+    t.textContent = mode === 'document' || mode === 'move'
+        ? 'Mulai mengetik untuk mencari dokumen Anda.'
+        : 'Mulai mengetik untuk mencari item.';
+    const h = document.createElement('div');
+    h.className = 'text-[11px] text-[#b5b0a9] mt-1';
+    h.textContent = 'Filter: type:item · type:doc · type:folder';
+    emptyEl.append(t, h);
 }
 
 export function open(mode = 'document', onPick = null) {
@@ -142,9 +160,7 @@ export function open(mode = 'document', onPick = null) {
                 ? 'Pilih dokumen tujuan…'
                 : 'Cari dokumen, item, atau bookmark…';
     render();
-    emptyEl.textContent = mode === 'document' || mode === 'move'
-        ? 'Mulai mengetik untuk mencari dokumen Anda.'
-        : 'Mulai mengetik untuk mencari item.';
+    setEmptyHint(mode);
     input.focus();
 }
 

@@ -7,9 +7,9 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
-## Dynalist API
+## ABCLIST API
 
-Backend API mirip Dynalist (outliner) berbasis Laravel 12 + MongoDB Atlas.
+Backend API outliner berbasis Laravel 12 + MongoDB Atlas.
 
 ### Kebutuhan
 - PHP ^8.2 (harus ada di PATH)

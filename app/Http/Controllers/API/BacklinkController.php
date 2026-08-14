@@ -53,4 +53,53 @@ class BacklinkController extends Controller
             'data' => $data,
         ]);
     }
+
+    public function counts(Request $request, $documentId)
+    {
+        $user = $request->user();
+
+        $doc = Document::where('user_id', $user->id)->find($documentId);
+
+        if (! $doc) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Document not found',
+            ], 404);
+        }
+
+        $ids = Item::where('user_id', $user->id)
+            ->where('document_id', $documentId)
+            ->get(['id'])
+            ->pluck('id')
+            ->map(fn ($v) => (string) $v)
+            ->all();
+
+        if (! $ids) {
+            return response()->json([
+                'status' => 'success',
+                'data' => (object) [],
+            ]);
+        }
+
+        $refs = Item::where('user_id', $user->id)
+            ->whereRaw([
+                'content' => new \MongoDB\BSON\Regex('\]\]', 'i'),
+            ])
+            ->get(['content']);
+
+        $counts = [];
+        foreach ($refs as $it) {
+            preg_match_all('/\[\[[^\]]*\|([A-Za-z0-9]+)\]\]/', (string) $it->content, $m);
+            foreach ($m[1] as $target) {
+                if (in_array($target, $ids, true)) {
+                    $counts[$target] = ($counts[$target] ?? 0) + 1;
+                }
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $counts,
+        ]);
+    }
 }

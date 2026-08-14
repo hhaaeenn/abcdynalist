@@ -8,6 +8,7 @@ use App\Http\Controllers\API\DocumentController;
 use App\Http\Controllers\API\ItemController;
 use App\Http\Controllers\API\QuickFinderController;
 use App\Http\Controllers\API\RevisionController;
+use App\Http\Controllers\API\TagColorController;
 
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
@@ -24,6 +25,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/tags/{tag}', [QuickFinderController::class, 'tagItems']);
 
     Route::get('/items/{id}/backlinks', [BacklinkController::class, 'index']);
+    Route::get('/documents/{documentId}/backlink-counts', [BacklinkController::class, 'counts']);
+
+    Route::get('/tag-colors', [TagColorController::class, 'index']);
+    Route::put('/tag-colors/{tag}', [TagColorController::class, 'update']);
 
     Route::get('/documents', [DocumentController::class, 'index']);
     Route::get('/documents/trashed', [DocumentController::class, 'trashed']);
@@ -36,6 +41,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/documents/{id}/force', [DocumentController::class, 'forceDestroy']);
     Route::post('/documents/{id}/move', [DocumentController::class, 'move']);
     Route::post('/documents/{id}/sort', [DocumentController::class, 'sort']);
+    Route::post('/documents/sort-all', [DocumentController::class, 'sortAll']);
+    Route::post('/documents/{id}/copy', [DocumentController::class, 'copy']);
+    Route::post('/documents/import', [DocumentController::class, 'importDocument']);
     Route::post('/documents/{id}/set-inbox', [DocumentController::class, 'setInbox']);
     Route::get('/documents/{id}/share', [DocumentController::class, 'showShare']);
     Route::post('/documents/{id}/share', [DocumentController::class, 'updateShare']);

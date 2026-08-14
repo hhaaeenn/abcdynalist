@@ -533,13 +533,35 @@ class ItemController extends Controller
         }
 
         $data = $request->validate([
-            'order' => ['required', 'in:name_asc,name_desc,created_asc,created_desc,checked'],
+            'order' => ['required', 'in:default,name_asc,name_desc,created_asc,created_desc,checked,checked_desc,updated_asc,updated_desc,reverse'],
         ]);
+
+        if ($data['order'] === 'reverse') {
+            $ordered = Item::where('document_id', $documentId)
+                ->where('parent_id', $item->id)
+                ->orderBy('sort_order')
+                ->get()
+                ->reverse()
+                ->values();
+
+            foreach ($ordered as $index => $child) {
+                $child->sort_order = $index;
+                $child->save();
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Sorted',
+            ]);
+        }
 
         $children = Item::where('document_id', $documentId)
             ->where('parent_id', $item->id);
 
         switch ($data['order']) {
+            case 'default':
+                $children->orderBy('sort_order');
+                break;
             case 'name_asc':
                 $children->orderBy('content');
                 break;
@@ -554,6 +576,15 @@ class ItemController extends Controller
                 break;
             case 'checked':
                 $children->orderBy('checked')->orderBy('sort_order');
+                break;
+            case 'checked_desc':
+                $children->orderByDesc('checked')->orderBy('sort_order');
+                break;
+            case 'updated_asc':
+                $children->orderBy('updated_at')->orderBy('sort_order');
+                break;
+            case 'updated_desc':
+                $children->orderByDesc('updated_at')->orderBy('sort_order');
                 break;
         }
 

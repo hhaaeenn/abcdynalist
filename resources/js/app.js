@@ -9,6 +9,8 @@ import { init as initContextMenu } from './context-menu';
 import { init as initTags } from './tags';
 import { init as initTrashDocs } from './trash-docs';
 import { init as initHelp } from './help';
+import { init as initBacklinks } from './backlinks';
+import { init as initTagColors } from './tag-colors';
 
 const page = document.body.dataset.page;
 
@@ -42,6 +44,8 @@ if (page === 'login') {
         initTags();
         initTrashDocs();
         initHelp();
+        initBacklinks();
+        initTagColors();
 
         handleDeepLink();
 
@@ -56,12 +60,12 @@ if (page === 'login') {
             } else if (e.shiftKey && key === 'f') {
                 e.preventDefault();
                 togglePane();
+            } else if (e.shiftKey && (key === 'o' || key === 'p')) {
+                e.preventDefault();
+                openQuickFinder('item');
             } else if (key === 'p' || key === 'o') {
                 e.preventDefault();
                 openQuickFinder();
-            } else if (e.shiftKey && key === 'o') {
-                e.preventDefault();
-                openQuickFinder('item');
             } else if (key === 'f' && isDocOpen()) {
                 e.preventDefault();
                 openSearch();

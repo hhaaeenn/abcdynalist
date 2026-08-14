@@ -24,6 +24,7 @@ class PublishController extends Controller
             if ($password === '') {
                 return response()->view('publish', [
                     'document' => $document,
+                    'isFolder' => $document->type === 'folder',
                     'locked' => true,
                     'wrongPassword' => false,
                     'ordered' => [],
@@ -33,6 +34,7 @@ class PublishController extends Controller
             if (! Hash::check($password, $document->publish_password)) {
                 return response()->view('publish', [
                     'document' => $document,
+                    'isFolder' => $document->type === 'folder',
                     'locked' => true,
                     'wrongPassword' => true,
                     'ordered' => [],
@@ -42,9 +44,12 @@ class PublishController extends Controller
 
         return view('publish', [
             'document' => $document,
+            'isFolder' => $document->type === 'folder',
             'locked' => false,
             'wrongPassword' => false,
-            'ordered' => ShareController::buildOrdered($document->user_id, $document->id),
+            'ordered' => $document->type === 'folder'
+                ? ShareController::buildFolderOrdered($document->user_id, $document->id)
+                : ShareController::buildOrdered($document->user_id, $document->id),
         ]);
     }
 }

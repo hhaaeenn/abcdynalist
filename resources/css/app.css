@@ -53,6 +53,19 @@
     margin-left: 0.375rem;
 }
 
+.help-row .md {
+    min-width: 7.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    background: rgb(0 0 0 / 0.05);
+    border-radius: 4px;
+    padding: 0.0625rem 0.3125rem;
+}
+
+body[data-theme='dark'] .help-row .md {
+    background: rgb(255 255 255 / 0.08);
+}
+
 /* scrollbar file pane */
 #doc-tree::-webkit-scrollbar,
 #bookmarks-list::-webkit-scrollbar,
@@ -174,7 +187,7 @@
 body[data-theme='dark'] {
     color-scheme: dark;
     background: #1c1b19;
-    color: #d6d2cb;
+    color: #e6e3dc;
 }
 
 body[data-theme='dark'] #main {
@@ -197,7 +210,7 @@ body[data-theme='dark'] #doc-title {
 
 /* dark item-row hover → in polish section */
 body[data-theme='dark'] .item-text:not([style]) {
-    color: #d6d2cb !important;
+    color: #e6e3dc !important;
 }
 
 body[data-theme='dark'] .is-checked-text {
@@ -298,7 +311,7 @@ body[data-theme='sepia'] #doc-toolbar {
     user-select: none;
 }
 
-/* bullet disc — titik kecil mirip Dynalist */
+/* bullet disc — titik kecil mirip ABCLIST */
 .bullet-disc {
     display: inline-block;
     width: 6px;
@@ -359,38 +372,9 @@ body[data-theme='sepia'] #bookmark-doc-btn.bookmarked {
     background: linear-gradient(180deg, #f5e9c9, #f2e3bb);
 }
 
-/* floating node toolbar (like Dynalist) */
-#node-toolbar {
-    box-shadow: 0 8px 22px rgb(0 0 0 / 0.14);
-    animation: toolbar-pop 0.14s ease-out;
-}
-
-@keyframes toolbar-pop {
-    from {
-        opacity: 0;
-        transform: translateY(4px);
-    }
-    to {
-        opacity: 1;
-        transform: none;
-    }
-}
-
-#node-toolbar::before {
-    content: '';
-    position: absolute;
-    left: 22px;
-    top: 100%;
-    width: 8px;
-    height: 8px;
-    background: inherit;
-    border-right: 1px solid rgb(0 0 0 / 0.08);
-    border-bottom: 1px solid rgb(0 0 0 / 0.08);
-    transform: translateY(-4px) rotate(45deg);
-}
-
 /* view options popover */
-#view-options {
+#view-options,
+#reminder-pop {
     border-radius: 10px;
     box-shadow: 0 12px 32px rgb(0 0 0 / 0.16), 0 2px 8px rgb(0 0 0 / 0.08);
     padding: 4px;
@@ -427,15 +411,10 @@ body[data-theme='dark'] .tool-btn.is-danger:hover {
     color: #f87171;
 }
 
-body[data-theme='dark'] #node-toolbar,
-body[data-theme='dark'] #view-options {
+body[data-theme='dark'] #view-options,
+body[data-theme='dark'] #reminder-pop {
     background: #262420;
     border-color: rgb(255 255 255 / 0.1);
-}
-
-body[data-theme='dark'] #node-toolbar::before {
-    border-right-color: rgb(255 255 255 / 0.1);
-    border-bottom-color: rgb(255 255 255 / 0.1);
 }
 
 body[data-theme='dark'] .view-opt {
@@ -459,8 +438,8 @@ body[data-theme='sepia'] .tool-btn:hover {
     color: #2c2820;
 }
 
-body[data-theme='sepia'] #node-toolbar,
-body[data-theme='sepia'] #view-options {
+body[data-theme='sepia'] #view-options,
+body[data-theme='sepia'] #reminder-pop {
     background: #fffaf0;
     border-color: rgb(0 0 0 / 0.1);
 }
@@ -557,14 +536,32 @@ input:focus-visible,
     background: rgb(0 0 0 / 0.04);
 }
 
+/* Garis panduan indent vertikal (khas ABCLIST) — DOM elements */
+.item-guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgb(0 0 0 / 0.08);
+    pointer-events: none;
+}
+
+.item-guide.item-guide-child {
+    top: 50%;
+}
+
+body[data-theme='dark'] .item-guide {
+    background: rgb(255 255 255 / 0.15);
+}
+
 .item-row.selected {
-    background: linear-gradient(90deg, #fdf3dc, #fcf0d3);
-    box-shadow: inset 3px 0 0 0 #d9a441;
+    background: transparent;
+    box-shadow: none;
 }
 
 .item-row.multi-selected {
-    background: linear-gradient(90deg, #eef3fb, #e8f0fe);
-    box-shadow: inset 3px 0 0 0 #6a93cf;
+    background: rgb(0 0 0 / 0.05);
+    box-shadow: none;
 }
 
 /* bullet — warna abu normal, orange saat hover row */
@@ -590,6 +587,35 @@ input:focus-visible,
     transform: scale(0.85);
 }
 
+/* Halo/ring visual khas ABCLIST untuk item dengan anak yang terciutkan */
+.bullet.has-collapsed-children .bullet-disc {
+    box-shadow: 0 0 0 2.5px rgb(192 122 18 / 0.45);
+    background: #c07a12;
+}
+
+body[data-theme='dark'] .bullet.has-collapsed-children .bullet-disc {
+    box-shadow: 0 0 0 2.5px rgb(224 169 64 / 0.55);
+    background: #e0a940;
+}
+
+body[data-theme='sepia'] .bullet.has-collapsed-children .bullet-disc {
+    box-shadow: 0 0 0 2.5px rgb(180 83 9 / 0.45);
+    background: #b45309;
+}
+
+/* checklist dipakai sebagai bullet — centang harus putih (bukan abu bullet) */
+.item-row .bullet.item-checkbox.checked,
+body[data-theme='dark'] .item-row .bullet.item-checkbox.checked,
+body[data-theme='sepia'] .item-row .bullet.item-checkbox.checked {
+    color: #fff;
+}
+
+.item-row .bullet.item-checkbox.unchecked,
+body[data-theme='dark'] .item-row .bullet.item-checkbox.unchecked,
+body[data-theme='sepia'] .item-row .bullet.item-checkbox.unchecked {
+    color: transparent;
+}
+
 /* chevron — muncul saat hover row */
 .item-row .item-chevron {
     color: #b5b0a9;
@@ -605,7 +631,7 @@ input:focus-visible,
     color: #c07a12;
 }
 
-/* teks checked — strikethrough + redup seperti Dynalist */
+/* teks checked — strikethrough + redup seperti ABCLIST */
 .is-checked-text {
     text-decoration: line-through;
     color: #b5b0a9 !important;
@@ -1063,13 +1089,13 @@ body[data-theme='dark'] .item-row:hover {
 }
 
 body[data-theme='dark'] .item-row.selected {
-    background: linear-gradient(90deg, #40371f, #38301b);
-    box-shadow: inset 3px 0 0 0 #d9a441;
+    background: transparent;
+    box-shadow: none;
 }
 
 body[data-theme='dark'] .item-row.multi-selected {
-    background: linear-gradient(90deg, #1d2c3c, #192634);
-    box-shadow: inset 3px 0 0 0 #6a93cf;
+    background: rgb(255 255 255 / 0.08);
+    box-shadow: none;
 }
 
 body[data-theme='dark'] .item-row .bullet {
@@ -1092,12 +1118,19 @@ body[data-theme='dark'] .item-row:hover .item-chevron {
     color: #8a857e;
 }
 
+/* ikon zoom/menu: hover di mode gelap harus mencerahkan, bukan menggelapkan (warna #24221f tidak terlihat di latar gelap) */
+body[data-theme='dark'] .item-zoom:hover,
+body[data-theme='dark'] .item-menu-btn:hover {
+    color: #e0a940;
+    background: rgb(255 255 255 / 0.08);
+}
+
 body[data-theme='dark'] .is-checked-text {
     color: #6b675f !important;
 }
 
 body[data-theme='dark'] .item-checkbox.unchecked {
-    border-color: #5a5650;
+    border-color: #6f6a63;
 }
 
 body[data-theme='dark'] .item-checkbox.unchecked:hover {
@@ -1106,8 +1139,8 @@ body[data-theme='dark'] .item-checkbox.unchecked:hover {
 }
 
 body[data-theme='dark'] .item-text:focus {
-    background: #2a2824;
-    box-shadow: 0 0 0 1.5px rgb(217 164 65 / 0.55);
+    background: transparent;
+    box-shadow: none;
 }
 
 body[data-theme='dark'] #zoom-bar {
@@ -1148,13 +1181,13 @@ body[data-theme='sepia'] .item-row:hover {
 }
 
 body[data-theme='sepia'] .item-row.selected {
-    background: linear-gradient(90deg, #f7ecd2, #f4e8c8);
-    box-shadow: inset 3px 0 0 0 #d9a441;
+    background: transparent;
+    box-shadow: none;
 }
 
 body[data-theme='sepia'] .item-row.multi-selected {
-    background: linear-gradient(90deg, #e7ecf5, #dde4f0);
-    box-shadow: inset 3px 0 0 0 #6a93cf;
+    background: rgb(0 0 0 / 0.05);
+    box-shadow: none;
 }
 
 body[data-theme='sepia'] .item-row .bullet {
@@ -1171,4 +1204,243 @@ body[data-theme='sepia'] .item-row.selected .bullet {
 
 body[data-theme='sepia'] .item-text:focus {
     background: #fffdf6;
+}
+
+/* ── Highlight hasil cari dalam dokumen ── */
+.item-row.search-dim .item-text {
+    opacity: 0.4;
+}
+
+.item-row.search-hit .item-text {
+    background: #fdf1d7;
+    border-radius: 4px;
+}
+
+.item-row.search-current .item-text {
+    background: #f6d98e;
+    box-shadow: 0 0 0 2px #f6d98e;
+    border-radius: 4px;
+}
+
+body[data-theme='dark'] .item-row.search-dim .item-text {
+    opacity: 0.35;
+}
+
+body[data-theme='dark'] .item-row.search-hit .item-text {
+    background: rgb(217 164 65 / 0.16);
+}
+
+body[data-theme='dark'] .item-row.search-current .item-text {
+    background: rgb(217 164 65 / 0.34);
+    box-shadow: 0 0 0 2px rgb(217 164 65 / 0.4);
+}
+
+body[data-theme='sepia'] .item-row.search-hit .item-text {
+    background: #f4e3bb;
+}
+
+body[data-theme='sepia'] .item-row.search-current .item-text {
+    background: #e9cf8e;
+    box-shadow: 0 0 0 2px #e9cf8e;
+}
+
+/* ── Spacing (padat / normal / luas) seperti ABCLIST ── */
+#outline.spacing-dense .item-row .item-text {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+#outline.spacing-dense .item-row .item-note {
+    margin-top: 0;
+}
+
+#outline.spacing-wide .item-row .item-text {
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+#outline.spacing-wide .item-row .item-note {
+    margin-top: 3px;
+}
+
+/* ── Cetak (Print) — tampilkan hanya isi dokumen ── */
+@media print {
+    #rail,
+    #file-pane,
+    #doc-toolbar,
+    #doc-searchbar,
+    #zoom-bar,
+    #quick-finder,
+    #sr-modal,
+    #help-modal,
+    #ctx-menu,
+    #toast,
+    #tag-results,
+    #trash-view,
+    #main-empty,
+    .item-menu-btn,
+    .item-zoom-btn,
+    .item-chevron,
+    .item-del,
+    .item-img-del {
+        display: none !important;
+    }
+
+    body {
+        background: #fff !important;
+    }
+
+    #main {
+        overflow: visible !important;
+        background: #fff !important;
+    }
+
+    #doc-view {
+        overflow: visible !important;
+    }
+
+    #doc-container {
+        max-width: none !important;
+        padding: 0 12px !important;
+    }
+
+    .item-row {
+        break-inside: avoid;
+    }
+
+    .item-text {
+        color: #000 !important;
+    }
+
+    .item-note {
+        color: #555 !important;
+    }
+}
+
+/* ── Settings modal ── */
+.settings-label {
+    margin-bottom: 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #8a857e;
+}
+
+.pref-btn {
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.5rem;
+    font-size: 0.8125rem;
+    color: #5a5650;
+    background: #f4f3f2;
+    border: 1px solid rgb(0 0 0 / 0.08);
+    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.pref-btn:hover {
+    border-color: #d9a441;
+}
+
+.pref-btn.pref-active {
+    background: linear-gradient(180deg, #fcefcf, #fbecc4);
+    border-color: #d9a441;
+    color: #c07a12;
+    font-weight: 600;
+}
+
+body[data-theme='dark'] #settings-modal > div.relative {
+    background: #201f1c;
+    border-color: rgb(255 255 255 / 0.1);
+}
+
+body[data-theme='dark'] #settings-modal h3,
+body[data-theme='dark'] #settings-modal label {
+    color: #e8e5df;
+}
+
+body[data-theme='dark'] .pref-btn {
+    background: rgb(255 255 255 / 0.06);
+    color: #b9b4ac;
+    border-color: rgb(255 255 255 / 0.1);
+}
+
+body[data-theme='dark'] .pref-btn.pref-active {
+    background: linear-gradient(180deg, #3d341c, #36301a);
+    border-color: #d9a441;
+    color: #e0a940;
+}
+
+body[data-theme='sepia'] #settings-modal > div.relative {
+    background: #fffaf0;
+    border-color: rgb(0 0 0 / 0.1);
+}
+
+body[data-theme='sepia'] .pref-btn {
+    background: #f3ecda;
+    border-color: rgb(0 0 0 / 0.08);
+}
+
+body[data-theme='sepia'] .pref-btn.pref-active {
+    background: linear-gradient(180deg, #f5e9c9, #f2e3bb);
+    border-color: #d9a441;
+    color: #b45309;
+}
+
+/* ── Status bar ── */
+body[data-theme='dark'] #status-bar {
+    background: #201f1c;
+    border-color: rgb(255 255 255 / 0.08);
+}
+
+body[data-theme='sepia'] #status-bar {
+    background: #f6f0de;
+    border-color: rgb(0 0 0 / 0.08);
+}
+
+/* ── Doc search bar themes ── */
+body[data-theme='dark'] #doc-searchbar > div {
+    background: #262420;
+    border-color: rgb(255 255 255 / 0.1);
+}
+
+body[data-theme='dark'] #doc-search-input {
+    color: #d6d2cb;
+}
+
+body[data-theme='dark'] #doc-search-input::placeholder {
+    color: #6b675f;
+}
+
+body[data-theme='sepia'] #doc-searchbar > div {
+    background: #fffaf0;
+}
+
+/* ── Ukuran font dokumen ── */
+#outline.font-small .item-text {
+    font-size: 13.5px;
+}
+
+#outline.font-large .item-text {
+    font-size: 17px;
+}
+
+#outline.font-large .item-note {
+    font-size: 13.5px;
+}
+
+/* ── Tampilan sempit (narrow) ── */
+body.narrow #doc-container {
+    max-width: 42rem;
+}
+
+body.narrow #tag-results,
+body.narrow #trash-view {
+    max-width: 42rem;
+}
+
+/* ── Nonaktifkan sorot item aktif ── */
+body.no-highlight .item-row.selected,
+body.no-highlight .item-row.multi-selected {
+    background: transparent;
+    box-shadow: none;
 }

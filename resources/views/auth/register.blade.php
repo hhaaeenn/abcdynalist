@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('page', 'register')
-@section('title', 'Daftar - Dynalist')
+@section('title', 'Daftar - ABCLIST')
 
 @section('content')
 <div class="min-h-screen flex items-center justify-center bg-[#f5f4f3] px-4">
@@ -14,7 +14,7 @@
                     <path d="M5 12a7 7 0 0 1 14 0" />
                 </svg>
             </div>
-            <h1 class="text-2xl font-semibold tracking-tight">Buat akun Dynalist</h1>
+            <h1 class="text-2xl font-semibold tracking-tight">Buat akun ABCLIST</h1>
             <p class="text-sm text-[#77716b] mt-1">Dokumen Inbox otomatis dibuat untuk Anda</p>
         </div>
 

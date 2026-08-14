@@ -107,6 +107,7 @@ class DocumentController extends Controller
             'name' => ['sometimes', 'string', 'max:255'],
             'parent_id' => ['sometimes', 'nullable', 'string'],
             'is_inbox' => ['sometimes', 'boolean'],
+            'color' => ['sometimes', 'nullable', 'string', 'max:50'],
             'settings' => ['sometimes', 'array'],
         ]);
 
@@ -390,13 +391,34 @@ class DocumentController extends Controller
 
         $data = $request->validate([
             'format' => ['required', 'in:markdown,opml,json'],
+            'indent' => ['nullable', 'in:spaces,asterisks,dashes,none'],
+            'hidden' => ['nullable', 'string'],
         ]);
 
-        $ordered = ShareController::buildOrdered($user->id, $document->id);
+        $itemId = $request->input('item_id') ?: null;
+        $ordered = ShareController::buildOrdered($user->id, $document->id, $itemId);
+
+        $hiddenRaw = json_decode((string) $request->input('hidden', '[]'), true);
+        if (is_array($hiddenRaw) && count($hiddenRaw)) {
+            $hiddenSet = [];
+            foreach ($hiddenRaw as $h) {
+                $hiddenSet[(string) $h] = true;
+            }
+            $remove = [];
+            foreach ($ordered as $it) {
+                $pid = (string) ($it->parent_id ?? '');
+                if (isset($hiddenSet[(string) $it->id]) || ($remove[$pid] ?? false)) {
+                    $remove[(string) $it->id] = true;
+                }
+            }
+            $ordered = array_values(array_filter($ordered, fn ($it) => ! ($remove[(string) $it->id] ?? false)));
+        }
+
+        $indentStyle = $request->input('indent', 'spaces');
 
         switch ($data['format']) {
             case 'markdown':
-                $content = DocumentTransfer::toMarkdown($document->name, $ordered);
+                $content = DocumentTransfer::toMarkdown($document->name, $ordered, $indentStyle);
                 $ext = 'md';
                 break;
             case 'opml':
@@ -409,11 +431,22 @@ class DocumentController extends Controller
                 break;
         }
 
+        $nameBase = $document->name;
+        if ($itemId !== null) {
+            $rootItem = Item::where('user_id', $user->id)
+                ->where('document_id', $document->id)
+                ->find($itemId);
+            if ($rootItem) {
+                $clean = trim(preg_replace('/[#*_`=\[\]!@><~|]+/', '', (string) $rootItem->content));
+                $nameBase = $clean !== '' ? $clean : $document->name;
+            }
+        }
+
         return response()->json([
             'status' => 'success',
             'data' => [
                 'content' => $content,
-                'filename' => preg_replace('/[^A-Za-z0-9_-]+/', '_', $document->name).'.'.$ext,
+                'filename' => preg_replace('/[^A-Za-z0-9_-]+/', '_', $nameBase).'.'.$ext,
             ],
         ]);
     }
@@ -611,6 +644,91 @@ class DocumentController extends Controller
             'status' => 'success',
             'message' => 'Sorted',
         ]);
+    }
+
+    public function sortAll(Request $request)
+    {
+        $user = $request->user();
+
+        $documents = Document::where('user_id', $user->id)->get();
+
+        foreach ($documents->groupBy('parent_id') as $group) {
+            $sorted = $group->sortBy(fn ($d) => mb_strtolower((string) $d->name))->values();
+
+            foreach ($sorted as $index => $d) {
+                $d->sort_order = $index;
+                $d->save();
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Sorted alphabetically',
+        ]);
+    }
+
+    public function copy(Request $request, $id)
+    {
+        $user = $request->user();
+
+        $document = Document::where('user_id', $user->id)->find($id);
+
+        if (! $document || $document->type !== 'document') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Document not found',
+            ], 404);
+        }
+
+        $newDoc = Document::create([
+            'user_id' => $user->id,
+            'type' => 'document',
+            'name' => $document->name.' copy',
+            'parent_id' => $document->parent_id,
+            'color' => $document->color,
+            'sort_order' => Document::where('user_id', $user->id)
+                ->where('parent_id', $document->parent_id)
+                ->count(),
+            'settings' => [],
+        ]);
+
+        // Item dibuat dalam dua pass: pass pertama membuat salinan tanpa parent
+        // (agar id baru tersedia), pass kedua menautkan parent_id dengan id baru.
+        $items = Item::where('user_id', $user->id)
+            ->where('document_id', $document->id)
+            ->get();
+
+        $idMap = [];
+
+        foreach ($items as $item) {
+            $idMap[(string) $item->id] = (string) Item::create([
+                'user_id' => $user->id,
+                'document_id' => $newDoc->id,
+                'parent_id' => null,
+                'content' => $item->content,
+                'note' => $item->note,
+                'checked' => (bool) $item->checked,
+                'heading' => (int) $item->heading,
+                'color' => $item->color,
+                'bullet' => $item->bullet,
+                'tags' => $item->tags,
+                'sort_order' => (int) $item->sort_order,
+            ])->id;
+        }
+
+        foreach ($items as $item) {
+            if ($item->parent_id) {
+                $copy = Item::find($idMap[(string) $item->id]);
+                $copy->parent_id = $idMap[(string) $item->parent_id] ?? null;
+                $copy->save();
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Document copied',
+            'data' => $newDoc,
+        ], 201);
     }
 
     private function collectDescendantIds(Document $document, bool $withTrashed = false): array

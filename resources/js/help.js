@@ -22,6 +22,15 @@ export function init() {
             close();
             return;
         }
+        const t = e.target;
+        const isEditable = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/i.test(t.tagName || ''));
+        if (isEditable && !e.ctrlKey && !e.metaKey) return;
+
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === '?') {
+            e.preventDefault();
+            open();
+            return;
+        }
         if (!e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && e.key === '?') {
             e.preventDefault();
             open();

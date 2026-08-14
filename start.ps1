@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Menjalankan Dynalist API (Laravel 12 + MongoDB Atlas).
+    Menjalankan ABCLIST API (Laravel 12 + MongoDB Atlas).
 
 .DESCRIPTION
     - Memastikan .env dan vendor sudah siap

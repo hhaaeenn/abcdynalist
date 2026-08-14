@@ -2,6 +2,8 @@ import { api, clearAuth } from './api';
 import { toast } from './ui';
 import { showFailedAlert } from './alerts';
 import { store } from './store';
+import { moveItemsToDocument, resetView } from './document';
+import { pushDocUndo, popDocUndo, docUndoIsNewest } from './ops';
 
 const ICONS = {
     document: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4 shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
@@ -19,6 +21,13 @@ let treeDrop = null;
 
 export function findNode(id) {
     return nodeMap.get(id);
+}
+
+export function findInbox() {
+    for (const node of nodeMap.values()) {
+        if (node.type === 'document' && node.is_inbox) return node;
+    }
+    return null;
 }
 
 function icon(name, color = 'text-[#8a857e]') {
@@ -66,7 +75,15 @@ function buildRow(node, depth) {
         startCreate('document', node.id);
     });
 
-    row.append(spacer, chevron, icon(isFolder ? 'folder' : 'document', isFolder ? 'text-[#c07a12]' : 'text-[#8a857e]'), label);
+    row.append(spacer, chevron, icon(isFolder ? 'folder' : 'document', isFolder ? 'text-[#c07a12]' : 'text-[#8a857e]'));
+    if (node.type === 'document' && node.color) {
+        const dot = document.createElement('span');
+        dot.className = 'shrink-0 w-2 h-2 rounded-full border border-black/20';
+        dot.style.background = node.color;
+        dot.title = 'Dokumen berlabel warna';
+        row.append(dot);
+    }
+    row.append(label);
     if (isFolder) row.append(addBtn);
 
     row.draggable = true;
@@ -91,6 +108,16 @@ function buildRow(node, depth) {
         row.classList.remove('opacity-40');
     });
     row.addEventListener('dragover', (e) => {
+        const itemDrag = window.__abclistItemDrag;
+        if (itemDrag && node.type === 'document') {
+            if (itemDrag.docId === node.id) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            clearTreeDrop();
+            row.classList.add('tree-drop-child');
+            treeDrop = { type: 'child', target: node };
+            return;
+        }
         if (!dragDocId || dragDocId === node.id) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
@@ -113,6 +140,11 @@ function buildRow(node, depth) {
         e.stopPropagation();
         const a = treeDrop;
         clearTreeDrop();
+        const itemDrag = window.__abclistItemDrag;
+        if (itemDrag && a && a.target.type === 'document' && itemDrag.docId !== a.target.id) {
+            moveItemsToDocument(itemDrag.ids, a.target.id);
+            return;
+        }
         if (a && dragDocId) moveDoc(dragDocId, a);
     });
 
@@ -255,10 +287,10 @@ export function startCreate(type, parentId) {
             const name = input.value.trim() || (type === 'folder' ? 'New folder' : 'New document');
             try {
                 const forced = parentId !== undefined;
-                const inFolder = !forced && store.selectedNode && store.selectedNode.type === 'folder';
-                const pid = forced ? parentId : inFolder ? store.selectedNode.id : null;
+                const pid = forced ? parentId : null;
                 const data = await api.post('/documents', { type, name, parent_id: pid });
                 if (pid) store.collapsed.delete(pid);
+                if (data.data) pushDocUndo(data.data.id);
                 await loadTree();
                 if (type === 'document' && data.data) selectDocument(data.data);
                 else if (type === 'folder') toast(`Folder "${name}" dibuat`);
@@ -272,6 +304,25 @@ export function startCreate(type, parentId) {
     input.addEventListener('blur', finish);
 }
 
+export async function undoLastDocCreation() {
+    const op = popDocUndo();
+    if (!op) return;
+    try {
+        await api.delete(`/documents/${op.id}`);
+        localStorage.removeItem(`abclist_ui_${op.id}`);
+        if (store.selectedId === op.id) {
+            store.selectedId = null;
+            store.selectedNode = null;
+            resetView();
+        }
+        await loadTree();
+        toast('Pembuatan dokumen dibatalkan');
+    } catch (err) {
+        pushDocUndo(op.id);
+        toast(err.message, 'error');
+    }
+}
+
 let addMenu;
 
 export function init() {
@@ -279,6 +330,14 @@ export function init() {
     addMenu = document.getElementById('add-menu');
     const addBtn = document.getElementById('add-btn');
     const opmlInput = document.getElementById('opml-input');
+
+    treeEl.addEventListener('dragover', (e) => {
+        if (!dragDocId && !window.__abclistItemDrag) return;
+        const r = treeEl.getBoundingClientRect();
+        const edge = 48;
+        if (e.clientY < r.top + edge) treeEl.scrollTop = Math.max(0, treeEl.scrollTop - 14);
+        else if (e.clientY > r.bottom - edge) treeEl.scrollTop += 14;
+    });
 
     addBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -303,6 +362,19 @@ export function init() {
         importOpml(file);
     });
 
+    document.addEventListener('keydown', (e) => {
+        if (e.defaultPrevented) return;
+        const mod = e.ctrlKey || e.metaKey;
+        if (!mod || e.shiftKey || e.altKey) return;
+        if (e.key.toLowerCase() !== 'z') return;
+        const t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/i.test(t.tagName || ''))) return;
+        if (docUndoIsNewest()) {
+            e.preventDefault();
+            undoLastDocCreation();
+        }
+    });
+
     document.addEventListener('click', (e) => {
         if (!addMenu.classList.contains('hidden') && !addMenu.contains(e.target) && e.target !== addBtn) {
             addMenu.classList.add('hidden');
@@ -311,6 +383,19 @@ export function init() {
 
     document.getElementById('collapse-pane').addEventListener('click', togglePane);
     document.getElementById('rail-toggle-pane').addEventListener('click', togglePane);
+
+    const sortBtn = document.getElementById('sort-docs-btn');
+    if (sortBtn) {
+        sortBtn.addEventListener('click', async () => {
+            try {
+                await api.post('/documents/sort-all');
+                toast('Dokumen diurutkan berdasarkan abjad.');
+                await loadTree();
+            } catch (e) {
+                toast(e.message, 'error');
+            }
+        });
+    }
 
     document.getElementById('logout-btn').addEventListener('click', async () => {
         try {

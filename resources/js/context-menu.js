@@ -3,7 +3,7 @@ import { toast } from './ui';
 import { store } from './store';
 import { esc, showPopupWithAction } from './alerts';
 import { selectDocument, loadTree, startCreate, findNode } from './sidebar';
-import { resetView } from './document';
+import { resetView, getHiddenIds } from './document';
 import Swal from 'sweetalert2';
 
 const ICONS = {
@@ -13,6 +13,16 @@ const ICONS = {
     rename: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4 shrink-0"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
     trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4 shrink-0"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
 };
+
+const DOC_COLORS = [
+    ['Red', '#dc2626'],
+    ['Orange', '#ea580c'],
+    ['Yellow', '#d97706'],
+    ['Green', '#16a34a'],
+    ['Blue', '#2563eb'],
+    ['Purple', '#7c3aed'],
+    ['Gray', '#6b7280'],
+];
 
 let menuEl;
 
@@ -45,14 +55,33 @@ function openMenu(x, y, items) {
             btn.append(ico);
         }
 
+        if (item.swatch !== undefined) {
+            const dot = document.createElement('span');
+            dot.className = 'inline-block w-3 h-3 rounded-full border border-black/20 shrink-0';
+            dot.style.background = item.swatch || 'transparent';
+            btn.append(dot);
+        }
+
         const label = document.createElement('span');
         label.className = 'flex-1';
         label.textContent = item.label;
         btn.append(label);
-        btn.addEventListener('click', () => {
-            close();
-            item.action();
-        });
+
+        if (item.children && item.children.length) {
+            const arrow = document.createElement('span');
+            arrow.className = 'text-[#b5b0a9] text-[11px]';
+            arrow.textContent = '›';
+            btn.append(arrow);
+            btn.addEventListener('click', () => {
+                const rect = menuEl.getBoundingClientRect();
+                openMenu(rect.left + rect.width - 6, rect.top, item.children);
+            });
+        } else {
+            btn.addEventListener('click', () => {
+                close();
+                item.action();
+            });
+        }
         menuEl.append(btn);
     }
 
@@ -80,20 +109,70 @@ function itemsForNode(node) {
         { label: 'New document', icon: 'document', action: () => startCreate('document', parentId) },
         { label: 'New folder', icon: 'folder', action: () => startCreate('folder', parentId) },
         'sep',
+        ...(node.type === 'folder'
+            ? [{
+                label: 'Sort children',
+                children: [
+                    { label: 'Name (A to Z)', action: () => sortFolderChildren(node, 'name_asc') },
+                    { label: 'Name (Z to A)', action: () => sortFolderChildren(node, 'name_desc') },
+                    { label: 'Created (new to old)', action: () => sortFolderChildren(node, 'created_desc') },
+                    { label: 'Created (old to new)', action: () => sortFolderChildren(node, 'created_asc') },
+                ],
+            }]
+            : []),
         ...(node.type === 'document'
             ? [{ label: node.is_inbox ? 'Remove as inbox' : 'Set as inbox', action: () => setInbox(node) }]
+            : []),
+        ...(node.type === 'document'
+            ? [{
+                label: 'Color label',
+                children: [
+                    { label: (node.color || null) === null ? '✓ Clear color' : 'Clear color', action: () => setDocColor(node, null) },
+                    ...DOC_COLORS.map(([label, c]) => ({
+                        label: (node.color || null) === c ? `✓ ${label}` : label,
+                        swatch: c,
+                        action: () => setDocColor(node, c),
+                    })),
+                ],
+            }]
             : []),
         { label: 'Share…', icon: 'share', action: () => openShareDialog(node) },
         ...(node.type === 'document'
             ? [
                 { label: 'Publish…', icon: 'share', action: () => openPublishDialog(node) },
                 { label: 'Export…', icon: 'share', action: () => openExportDialog(node) },
+                { label: 'Print…', icon: 'share', action: () => window.print() },
             ]
             : []),
         'sep',
         { label: 'Rename', icon: 'rename', action: () => renameNode(node) },
+        ...(node.type === 'document'
+            ? [{ label: 'Make a copy', icon: 'document', action: () => copyNode(node) }]
+            : []),
         { label: 'Delete', icon: 'trash', action: () => deleteNode(node), danger: true },
     ];
+}
+
+async function copyNode(node) {
+    try {
+        const res = await api.post(`/documents/${node.id}/copy`);
+        toast(`Salinan "${node.name || '(tanpa nama)'}" dibuat.`);
+        await loadTree();
+        const copy = findNode(res.data.id);
+        if (copy) selectDocument(copy);
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+}
+
+async function sortFolderChildren(node, order) {
+    try {
+        await api.post(`/documents/${node.id}/sort`, { order });
+        toast('Folder diurutkan.');
+        await loadTree();
+    } catch (err) {
+        toast(err.message, 'error');
+    }
 }
 
 async function setInbox(node) {
@@ -103,6 +182,17 @@ async function setInbox(node) {
         node.is_inbox = isInbox;
         toast(isInbox ? 'Dokumen dijadikan Inbox' : 'Inbox dihapus dari dokumen');
         await loadTree();
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+}
+
+async function setDocColor(node, color) {
+    try {
+        await api.patch(`/documents/${node.id}`, { color });
+        node.color = color;
+        await loadTree();
+        toast(color ? 'Warna label dokumen diperbarui.' : 'Warna label dokumen dihapus.');
     } catch (err) {
         toast(err.message, 'error');
     }
@@ -291,11 +381,23 @@ function openExportDialog(node) {
         title: 'Export dokumen',
         html: `<div class="text-left">
             <p class="mb-2 text-[13px]">Export <b>${esc(node.name || '(tanpa nama)')}</b> — salin konten di bawah atau unduh sebagai file.</p>
-            <select id="export-format" class="w-full rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[13px] bg-white">
-                <option value="markdown">Markdown (.md)</option>
-                <option value="opml">OPML (.opml)</option>
-                <option value="json">JSON (.json)</option>
-            </select>
+            <div class="flex items-center gap-2">
+                <select id="export-format" class="flex-1 rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[13px] bg-white">
+                    <option value="markdown">Markdown (.md)</option>
+                    <option value="opml">OPML (.opml)</option>
+                    <option value="json">JSON (.json)</option>
+                </select>
+                <select id="export-indent" class="flex-1 rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[13px] bg-white">
+                    <option value="spaces">Indent: 2 spasi</option>
+                    <option value="asterisks">Bullet: tanda bintang</option>
+                    <option value="dashes">Bullet: tanda strip</option>
+                    <option value="none">Tanpa indent</option>
+                </select>
+            </div>
+            <label class="flex items-center gap-2 mt-2 text-[13px] text-[#3b3936]">
+                <input id="export-visible" type="checkbox" class="rounded accent-[#d9a441]">
+                Export hanya item yang terlihat (dari tampilan saat ini)
+            </label>
             <textarea id="export-body" readonly class="mt-2 w-full h-52 resize-y rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[12px] font-mono bg-[#faf9f8] text-[#3b3936]"></textarea>
             <div class="flex items-center gap-2 mt-2">
                 <button id="export-copy" type="button" class="rounded-lg bg-[#7b61ff] px-3 py-1.5 text-[13px] text-white hover:bg-[#6a4fef]">Salin ke clipboard</button>
@@ -306,10 +408,14 @@ function openExportDialog(node) {
         showCloseButton: true,
         didOpen: async () => {
             const fmt = document.getElementById('export-format');
+            const indent = document.getElementById('export-indent');
+            const visible = document.getElementById('export-visible');
             const body = document.getElementById('export-body');
             const load = async () => {
                 try {
-                    const res = await api.get(`/documents/${node.id}/export?format=${fmt.value}`);
+                    const params = new URLSearchParams({ format: fmt.value, indent: indent.value });
+                    if (visible.checked) params.set('hidden', JSON.stringify(getHiddenIds()));
+                    const res = await api.get(`/documents/${node.id}/export?${params}`);
                     body.value = res.data.content;
                     body.dataset.filename = res.data.filename;
                     return res.data.filename;
@@ -332,6 +438,8 @@ function openExportDialog(node) {
                 toast(`Dokumen diexport sebagai ${name}.`);
             };
             fmt.addEventListener('change', load);
+            indent.addEventListener('change', load);
+            visible.addEventListener('change', load);
             document.getElementById('export-copy').addEventListener('click', async () => {
                 try {
                     await navigator.clipboard.writeText(body.value);
@@ -385,7 +493,7 @@ async function deleteNode(node) {
         method: 'DELETE',
         path: `/documents/${node.id}`,
         onDone: async () => {
-            localStorage.removeItem(`dynalist_ui_${node.id}`);
+            localStorage.removeItem(`abclist_ui_${node.id}`);
             if (store.selectedId === node.id) {
                 store.selectedId = null;
                 store.selectedNode = null;
@@ -456,6 +564,14 @@ function onContext(e) {
     }
 
     openMenu(e.clientX, e.clientY, items);
+}
+
+export function openMenuAt(x, y, items) {
+    openMenu(x, y, items);
+}
+
+export function openDocMenuAt(x, y, node) {
+    openMenu(x, y, node ? itemsForNode(node) : baseItems());
 }
 
 export function init() {

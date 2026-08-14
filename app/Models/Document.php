@@ -20,6 +20,7 @@ class Document extends Model
         'parent_id',   // null = root level
         'sort_order',
         'is_inbox',
+        'color',       // color label dokumen
         'settings',
         'share_token',
         'publish_token',

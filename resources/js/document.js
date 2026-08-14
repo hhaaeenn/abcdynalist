@@ -1,10 +1,12 @@
-import { api } from './api';
+import { api, registerPendingItem, unregisterPendingItem } from './api';
 import { toast } from './ui';
 import { store } from './store';
 import { showSuccess, showFailedAlert, esc, showPopupWithAction } from './alerts';
 import Swal from 'sweetalert2';
-import { loadTree, highlightDocument, findNode } from './sidebar';
+import { loadTree, highlightDocument, findNode, findInbox, undoLastDocCreation } from './sidebar';
 import { loadBookmarks } from './bookmarks';
+import { markItemOp, docUndoIsNewest } from './ops';
+import { applyTo as applyTagColors, getColor as getTagColor } from './tag-colors';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -17,18 +19,37 @@ let zoomId = null;
 let tagFilter = null;
 let dragId = null;
 let dropAction = null;
+let dragCopy = false;
+let dragIds = null;
+let backlinkCounts = {};
+let lastDragPoint = null;
+let dragScrollTimer = null;
+let touchDrag = null;
+let touchDragTimer = null;
 let showCompleted = true;
-let showNotes = true;
+let notesMode = 'show';
 let theme = 'light';
 let defaultBullet = 'bullet';
+let spacing = 'normal';
+let fontSize = 'medium';
+let highlightCurrent = true;
+let narrow = false;
+let showWordCount = true;
+let bulletZoom = false;
+let reminderNotify = false;
+let globalCompleted = 'show';
+let globalNotes = 'show';
+let completedOverride = null;
+let notesOverride = null;
+
+let lastVisibleIds = new Set();
+let flatSearch = false;
 let trashItems = [];
 const multi = new Set();
 let selAnchor = null;
 let selEdge = null;
 let linkPickerTarget = null;
 let linkPickerRange = null;
-let hoveredRowId = null;
-let ntHideTimer = null;
 let itemClipboard = null;
 const undoStack = [];
 const redoStack = [];
@@ -48,7 +69,70 @@ const SVG = {
     zoomOut: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="M5 12h14"/></svg>',
     chevron: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="m6 9 6 6 6-6"/></svg>',
     note: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="M4 4h16v12H8l-4 4z"/></svg>',
+    clock: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[15px] h-[15px]"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>',
 };
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function parseReminders(text) {
+    const dates = [];
+    if (!text) return dates;
+    const re = /(!)(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?/g;
+    let m;
+    while ((m = re.exec(text))) {
+        let d = new Date(`${m[2]}T${m[3] || '09'}:${m[4] || '00'}:00`);
+        if (Number.isNaN(d.getTime())) continue;
+        dates.push(d);
+    }
+    return dates;
+}
+
+function hasReminder(content, note) {
+    return /!\d{4}-\d{2}-\d{2}/.test(`${content || ''}\n${note || ''}`);
+}
+
+function dueReminders(now = new Date()) {
+    const due = [];
+    for (const f of flat) {
+        const node = f.node;
+        if (!node || node.checked === true) continue;
+        if (!hasReminder(node.content, node.note)) continue;
+        for (const d of parseReminders(`${node.content}\n${node.note}`)) {
+            if (d <= now && !notifiedSet.has(`${node.id}:${d.getTime()}`)) {
+                due.push({ id: node.id, node, at: d });
+                notifiedSet.add(`${node.id}:${d.getTime()}`);
+            }
+        }
+    }
+    return due;
+}
+
+const notifiedSet = new Set();
+
+function notifyDueReminders() {
+    if (!reminderNotify) return;
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'denied') return;
+    if (Notification.permission === 'default') {
+        Notification.requestPermission();
+        return;
+    }
+    const due = dueReminders();
+    for (const r of due) {
+        const rel = r.node.document_id === docId ? '' : ' (dokumen lain)';
+        try {
+            new Notification('ABCLIST — Pengingat', {
+                body: `"${(r.node.content || '(tanpa judul)').slice(0, 120)}"${rel}\nJatuh tempo ${r.at.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}`,
+            });
+        } catch {
+            // ignore
+        }
+        toast(`Pengingat: ${r.node.content || '(tanpa judul)'}`);
+    }
+    if (due.length) updateReminderBadge();
+}
 
 function cacheEls() {
     els.toolbar = document.getElementById('doc-toolbar');
@@ -57,10 +141,10 @@ function cacheEls() {
     els.container = document.getElementById('doc-container');
     els.breadcrumb = document.getElementById('doc-breadcrumb');
     els.title = document.getElementById('doc-title');
+    els.docMenuBtn = document.getElementById('doc-menu-btn');
     els.meta = document.getElementById('doc-meta');
     els.tags = document.getElementById('doc-tags');
     els.outline = document.getElementById('outline');
-    els.loading = document.getElementById('outline-loading');
     els.bookmarkBtn = document.getElementById('bookmark-doc-btn');
     els.trashView = document.getElementById('trash-view');
     els.trashList = document.getElementById('trash-list');
@@ -76,6 +160,23 @@ function cacheEls() {
     els.srCountBtn = document.getElementById('sr-count');
     els.srReplaceBtn = document.getElementById('sr-replace-all');
     els.srCancel = document.getElementById('sr-cancel');
+    els.docSearchbar = document.getElementById('doc-searchbar');
+    els.docSearchInput = document.getElementById('doc-search-input');
+    els.docSearchCount = document.getElementById('doc-search-count');
+    els.docSearchPrev = document.getElementById('doc-search-prev');
+    els.docSearchNext = document.getElementById('doc-search-next');
+    els.docSearchClose = document.getElementById('doc-search-close');
+    els.statusBar = document.getElementById('status-bar');
+    els.statusSave = document.getElementById('status-save-text');
+    els.statusWords = document.getElementById('status-words');
+    els.statusCount = document.getElementById('status-count');
+    els.settingsModal = document.getElementById('settings-modal');
+    els.reminderBtn = document.getElementById('reminder-btn');
+    els.reminderBadge = document.getElementById('reminder-badge');
+    els.reminderPop = document.getElementById('reminder-pop');
+    els.reminderList = document.getElementById('reminder-list');
+    els.reminderNotifyToggle = document.getElementById('reminder-notify-toggle');
+    els.reminderNotifyLabel = document.getElementById('reminder-notify-label');
 }
 
 function showToolbar(show) {
@@ -146,7 +247,6 @@ export async function openDocument(id) {
     redoStack.length = 0;
     updateUndoButtons();
     loadUiState();
-    updateNodeToolbar();
     closeTrash();
 
     showToolbar(true);
@@ -156,9 +256,13 @@ export async function openDocument(id) {
     els.title.value = node?.name || 'Tanpa judul';
     els.meta.textContent = node?.is_inbox ? 'Dokumen Inbox' : 'Dokumen';
     renderBreadcrumb(node);
+    els.statusBar.classList.remove('hidden');
+    updateWordCount();
 
     await loadBookmarkState();
     await loadItems();
+    updateReminderBadge();
+    notifyDueReminders();
 }
 
 export async function zoomToItem(itemId) {
@@ -178,18 +282,17 @@ function showFolder(node) {
     undoStack.length = 0;
     redoStack.length = 0;
     updateUndoButtons();
-    updateNodeToolbar();
 
     showToolbar(false);
     showDocContainer(true);
     els.title.value = node.name || 'Folder';
     els.meta.textContent = 'Folder';
     renderBreadcrumb(node);
+    els.statusBar.classList.add('hidden');
     if (els.tags) {
         els.tags.innerHTML = '';
         els.tags.classList.add('hidden');
     }
-    els.loading.classList.add('hidden');
     els.outline.classList.remove('hidden');
     els.outline.innerHTML =
         '<p class="py-6 text-center text-sm text-[#b5b0a9]">Folder. Pilih dokumen di dalamnya dari panel kiri.</p>';
@@ -198,8 +301,7 @@ function showFolder(node) {
 async function loadItems() {
     if (!docId) return;
     const id = docId;
-    els.loading.classList.remove('hidden');
-    els.outline.classList.add('hidden');
+    els.outline.innerHTML = '';
     try {
         const data = await api.get(`/documents/${id}/items`);
         if (id !== docId) return;
@@ -220,38 +322,57 @@ async function loadItems() {
         render();
         renderTags();
         updateZoomBar();
+        loadBacklinkCounts();
     } catch (e) {
         if (id === docId) showFailedAlert(e.message);
-    } finally {
-        if (id === docId) {
-            els.loading.classList.add('hidden');
-            els.outline.classList.remove('hidden');
-        }
+    }
+}
+
+async function loadBacklinkCounts() {
+    if (!docId) return;
+    const id = docId;
+    try {
+        const res = await api.get(`/documents/${id}/backlink-counts`);
+        if (id !== docId) return;
+        backlinkCounts = res.data || {};
+        if (!editing && Object.keys(backlinkCounts).length) render();
+    } catch {
+        backlinkCounts = {};
     }
 }
 
 function uiKey() {
-    return `dynalist_ui_${docId}`;
+    return `abclist_ui_${docId}`;
 }
 
 function loadUiState() {
     zoomId = null;
     collapsed.clear();
+    completedOverride = null;
+    notesOverride = null;
     try {
         const raw = localStorage.getItem(uiKey());
         if (raw) {
             const s = JSON.parse(raw);
             if (s.zoom) zoomId = s.zoom;
             if (Array.isArray(s.collapsed)) s.collapsed.forEach((c) => collapsed.add(c));
+            if (s.completed === 'show' || s.completed === 'hide') completedOverride = s.completed;
+            if (s.notes === 'show' || s.notes === 'first' || s.notes === 'hide') notesOverride = s.notes;
         }
     } catch {
         // ignore
     }
+    applyEffectiveView();
 }
 
 function saveUiState() {
     try {
-        localStorage.setItem(uiKey(), JSON.stringify({ zoom: zoomId, collapsed: [...collapsed] }));
+        localStorage.setItem(uiKey(), JSON.stringify({
+            zoom: zoomId,
+            collapsed: [...collapsed],
+            completed: completedOverride,
+            notes: notesOverride,
+        }));
     } catch {
         // ignore
     }
@@ -260,8 +381,7 @@ function saveUiState() {
 function render() {
     els.outline.innerHTML = '';
     rows.clear();
-    hoveredRowId = null;
-    clearTimeout(ntHideTimer);
+    updateReminderBadge();
     let visible = flat.filter((f) => !f.parents.some((p) => collapsed.has(p)));
     if (!showCompleted) {
         const hidden = new Set();
@@ -284,6 +404,7 @@ function render() {
         );
         visible = visible.filter((f) => matched.has(f.node.id) || f.parents.some((p) => matched.has(p)));
     }
+    lastVisibleIds = new Set(visible.map((f) => f.node.id));
     if (!visible.length) {
         const empty = document.createElement('p');
         empty.className = 'doc-empty py-6 text-center text-sm text-[#b5b0a9] select-none cursor-text';
@@ -298,13 +419,12 @@ function render() {
             }
         });
         els.outline.append(empty);
-        updateNodeToolbar();
         return;
     }
     for (const { node, depth } of visible) {
         els.outline.append(buildRow(node, depth));
     }
-    updateNodeToolbar();
+    updateWordCount();
 }
 
 function contentHtml(content) {
@@ -334,6 +454,9 @@ function contentHtml(content) {
         .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g,
             '<a href="$2" target="_blank" rel="noopener" class="md-link">$1</a>')
         .replace(/\n/g, '<br>');
+    // URL storage absolut (mis. http://localhost:8000/storage/...) diubah jadi path relatif
+    // agar gambar tetap termuat saat aplikasi dibuka dari host lain (deploy/LAN).
+    html = html.replace(/(src|href)="https?:\/\/[^"]*?\/storage\//g, '$1="/storage/');
     html = html.replace(/\u0000L(\d+)\u0000/g, (_m, i) => {
         try {
             return katex.renderToString(latex[i], { throwOnError: false, displayMode: true });
@@ -352,10 +475,29 @@ function buildRow(node, depth) {
     if (multi.has(node.id)) row.classList.add('multi-selected');
     row.style.marginLeft = `${depth * 24}px`;
 
+    const hasChildren = Array.isArray(node.children) && node.children.length;
+
+    // Garis panduan indent vertikal (khas ABCLIST):
+    // Untuk setiap level kedalaman, tambahkan garis vertikal tipis.
+    // Offset 22px = posisi tengah bullet relatif terhadap row (8px padding + ~14px ke center bullet).
+    // Setiap level ancestor = -24px lebih ke kiri.
+    for (let i = 0; i < depth; i++) {
+        const guide = document.createElement('div');
+        guide.className = 'item-guide';
+        guide.style.left = `${(i - depth) * 24 + 22}px`;
+        row.append(guide);
+    }
+    // Garis anak: dari tengah baris ke bawah, di posisi bullet anak
+    if (hasChildren && !collapsed.has(node.id)) {
+        const childGuide = document.createElement('div');
+        childGuide.className = 'item-guide item-guide-child';
+        childGuide.style.left = '22px';
+        row.append(childGuide);
+    }
+
     const bulletType = node.bullet === 'checklist' ? 'checklist' : node.bullet === 'numbered' ? 'numbered' : 'bullet';
 
     // ── chevron (collapse/expand) ─────────────────────────────────────────
-    // Selalu alokasikan ruang chevron (w-3) agar teks tetap lurus
     const chevronWrap = document.createElement('div');
     chevronWrap.className = 'shrink-0 mt-[4px] w-3 h-4 flex items-center justify-center';
 
@@ -365,79 +507,123 @@ function buildRow(node, depth) {
         chevron.className = 'item-chevron w-3 h-3 flex items-center justify-center rounded transition-transform opacity-0';
         chevron.innerHTML = SVG.chevron;
         chevron.title = 'Ciutkan / bentangkan';
-        if (collapsed.has(node.id)) chevron.classList.add('-rotate-90');
+        if (collapsed.has(node.id)) {
+            chevron.classList.add('-rotate-90');
+            chevron.classList.remove('opacity-0');
+        }
         chevron.addEventListener('click', (e) => {
             e.stopPropagation();
             toggleCollapse(node.id);
             chevron.classList.toggle('-rotate-90', collapsed.has(node.id));
+            chevron.classList.toggle('opacity-0', !collapsed.has(node.id));
         });
         chevronWrap.append(chevron);
     }
 
     // ── bullet ────────────────────────────────────────────────────────────
-    // Bullet SELALU ada (disc/angka). Klik = collapse/expand children.
-    const bullet = document.createElement('button');
-    bullet.type = 'button';
-    bullet.draggable = true;
-    bullet.className = 'bullet shrink-0 w-4 h-4 flex items-center justify-center rounded cursor-grab';
-
-    if (bulletType === 'numbered') {
-        bullet.classList.add('numbered-bullet');
-        bullet.title = 'Item bernomor · seret untuk memindahkan';
-        bullet.innerHTML = `<span class="numbered-num">${numberedIndex(node)}</span>`;
-    } else {
-        // bullet biasa DAN checklist — keduanya tampil disc
-        bullet.title = Array.isArray(node.children) && node.children.length
-            ? 'Klik untuk ciutkan/bentangkan · seret untuk memindahkan'
-            : 'Seret untuk memindahkan';
-        bullet.innerHTML = '<span class="bullet-disc"></span>';
-    }
-
-    bullet.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (e.ctrlKey || e.metaKey) { toggleMulti(node.id); return; }
-        if (multi.size) clearMulti();
-        selectItem(node.id);
-        // Bullet klik = collapse/expand children (sama seperti Dynalist)
-        if (Array.isArray(node.children) && node.children.length) {
-            toggleCollapse(node.id);
-        }
-    });
-
-    bullet.addEventListener('dragstart', (e) => {
-        e.stopPropagation();
-        dragId = node.id;
-        row.classList.add('opacity-40');
-        e.dataTransfer.setData('text/plain', node.id);
-        e.dataTransfer.effectAllowed = 'move';
-    });
-    bullet.addEventListener('dragend', () => {
-        dragId = null;
-        dropAction = null;
-        clearDropIndicators();
-        row.classList.remove('opacity-40');
-    });
-
-    // ── checkbox (hanya untuk checklist, muncul di kiri teks) ────────────
-    let checkboxEl = null;
+    let bullet;
     if (bulletType === 'checklist') {
-        checkboxEl = document.createElement('button');
-        checkboxEl.type = 'button';
-        checkboxEl.className = 'item-checkbox shrink-0 mt-[3px] w-[15px] h-[15px] flex items-center justify-center rounded-[3px] border transition-all cursor-pointer';
-        if (node.checked) {
-            checkboxEl.classList.add('checked');
-        } else {
-            checkboxEl.classList.add('unchecked');
-        }
-        checkboxEl.title = node.checked ? 'Klik untuk batal tandai' : 'Klik untuk tandai selesai';
-        checkboxEl.innerHTML = node.checked ? SVG.check : '';
-        checkboxEl.addEventListener('click', (e) => {
+        bullet = document.createElement('button');
+        bullet.type = 'button';
+        bullet.draggable = true;
+        bullet.className = 'bullet item-checkbox shrink-0 w-[15px] h-[15px] flex items-center justify-center rounded-[3px] border transition-all cursor-pointer';
+        if (node.checked) bullet.classList.add('checked');
+        else bullet.classList.add('unchecked');
+        bullet.title = node.checked ? 'Klik untuk batal tandai · seret untuk memindahkan' : 'Klik untuk tandai selesai · seret untuk memindahkan';
+        bullet.innerHTML = node.checked ? SVG.check : '';
+        bullet.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (e.ctrlKey || e.metaKey) { toggleMulti(node.id); return; }
             if (multi.size) clearMulti();
             selectItem(node.id);
             toggleCheck(node.id);
         });
+    } else {
+        bullet = document.createElement('button');
+        bullet.type = 'button';
+        bullet.draggable = true;
+        bullet.className = 'bullet shrink-0 w-4 h-4 flex items-center justify-center rounded cursor-grab';
+        if (hasChildren && collapsed.has(node.id)) {
+            bullet.classList.add('has-collapsed-children');
+        }
+        if (bulletType === 'numbered') {
+            bullet.classList.add('numbered-bullet');
+            bullet.title = 'Item bernomor · seret untuk memindahkan';
+            bullet.innerHTML = `<span class="numbered-num">${numberedLabel(node)}</span>`;
+        } else {
+            bullet.title = Array.isArray(node.children) && node.children.length
+                ? 'Klik untuk ciutkan/bentangkan · seret untuk memindahkan'
+                : 'Seret untuk memindahkan';
+            bullet.innerHTML = '<span class="bullet-disc"></span>';
+        }
+        bullet.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (e.ctrlKey || e.metaKey) { toggleMulti(node.id); return; }
+            if (multi.size) clearMulti();
+            selectItem(node.id);
+            if (Array.isArray(node.children) && node.children.length) {
+                if (bulletZoom) zoomInto(node.id);
+                else toggleCollapse(node.id);
+            }
+        });
     }
+
+    if (bulletType !== 'checklist') {
+        bullet.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            zoomInto(node.id);
+        });
+    }
+
+    bullet.addEventListener('dragstart', (e) => {
+        e.stopPropagation();
+        dragCopy = e.ctrlKey || e.metaKey;
+        dragIds = multi.size > 1 && multi.has(node.id) ? [...multi] : [node.id];
+        dragId = node.id;
+        row.classList.add('opacity-40');
+        window.__abclistItemDrag = { ids: dragIds || [node.id], docId };
+        e.dataTransfer.setData('text/plain', node.id);
+        e.dataTransfer.effectAllowed = dragCopy ? 'copyMove' : 'move';
+        lastDragPoint = null;
+        startDragScroll();
+    });
+    bullet.addEventListener('dragend', () => {
+        dragId = null;
+        dragIds = null;
+        dragCopy = false;
+        dropAction = null;
+        window.__abclistItemDrag = null;
+        clearDropIndicators();
+        row.classList.remove('opacity-40');
+        stopDragScroll();
+    });
+
+    initTouchDrag(bullet, node);
+
+    // ── zoom & menu icons (absolutely positioned overlay, khas ABCLIST) ─────
+    const zoomBtn = document.createElement('button');
+    zoomBtn.type = 'button';
+    zoomBtn.className = 'item-zoom absolute right-full mr-px opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto w-[18px] h-[18px] flex items-center justify-center rounded text-[#8a857e] hover:text-[#c07a12] hover:bg-black/[0.06] transition-all z-10';
+    zoomBtn.innerHTML = SVG.zoom;
+    zoomBtn.title = 'Zoom in (Ctrl+])';
+    zoomBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        zoomInto(node.id);
+    });
+
+    const menuBtn = document.createElement('button');
+    menuBtn.type = 'button';
+    menuBtn.className = 'item-menu-btn absolute right-full mr-[19px] opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto w-[18px] h-[18px] flex items-center justify-center rounded text-[#8a857e] hover:text-[#24221f] hover:bg-black/[0.06] transition-all z-10';
+    menuBtn.innerHTML = SVG.dots;
+    menuBtn.title = 'Menu item';
+    menuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleContextMenu(menuBtn, menuItemsFor(node));
+    });
+
+    const bulletZone = document.createElement('div');
+    bulletZone.className = 'bullet-zone relative shrink-0 flex items-center gap-0.5 mt-[3px]';
+    bulletZone.append(chevronWrap, bullet, zoomBtn, menuBtn);
 
     // ── konten teks ───────────────────────────────────────────────────────
     const cell = document.createElement('div');
@@ -458,14 +644,21 @@ function buildRow(node, depth) {
     }
     if (isOverdue(node)) text.classList.add('overdue');
     text.innerHTML = contentHtml(node.content);
+    applyTagColors(text);
     wireInlineImages(text, node.id);
     text.contentEditable = 'false';
 
     let noteEl = null;
-    if (node.note && showNotes) {
+    if (node.note && notesMode !== 'hide') {
         noteEl = document.createElement('div');
-        noteEl.className = 'item-note mt-0.5 text-[12.5px] text-[#8a857e] whitespace-pre-wrap';
-        noteEl.textContent = node.note;
+        noteEl.className = 'item-note mt-0.5 text-[12.5px] text-[#8a857e]';
+        if (notesMode === 'first') {
+            noteEl.innerHTML = contentHtml(node.note.split('\n')[0] + (node.note.includes('\n') ? ' …' : ''));
+        } else {
+            noteEl.innerHTML = contentHtml(node.note);
+        }
+        applyTagColors(noteEl);
+        wireNoteContent(noteEl);
     }
 
     cell.append(text);
@@ -482,59 +675,57 @@ function buildRow(node, depth) {
         deleteItem(node.id);
     });
 
-    // ── zoom & menu icons (inline sebelum bullet, muncul saat hover) ─────
-    // Di Dynalist: hover row → ikon "titik tiga" (menu) & kaca pembesar (zoom)
-    // muncul tepat di kiri bullet. Kita pakai pendekatan inline agar tidak
-    // terpengaruh overflow hidden dari parent.
-    const zoomBtn = document.createElement('button');
-    zoomBtn.type = 'button';
-    zoomBtn.className = 'item-zoom opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto shrink-0 w-[18px] h-[18px] flex items-center justify-center rounded text-[#8a857e] hover:text-[#c07a12] hover:bg-black/[0.06] transition-all';
-    zoomBtn.innerHTML = SVG.zoom;
-    zoomBtn.title = 'Zoom in (Ctrl+])';
-    zoomBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        zoomInto(node.id);
-    });
-
-    const menuBtn = document.createElement('button');
-    menuBtn.type = 'button';
-    menuBtn.className = 'item-menu-btn opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto shrink-0 w-[18px] h-[18px] flex items-center justify-center rounded text-[#8a857e] hover:text-[#24221f] hover:bg-black/[0.06] transition-all';
-    menuBtn.innerHTML = SVG.dots;
-    menuBtn.title = 'Menu item';
-    menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleContextMenu(menuBtn, menuItemsFor(node));
-    });
-
-    const bulletZone = document.createElement('div');
-    bulletZone.className = 'bullet-zone shrink-0 flex items-center gap-0.5 mt-[3px]';
-    // urutan: [menu] [zoom] [chevron] [bullet]
-    bulletZone.append(menuBtn, zoomBtn, chevronWrap, bullet);
-
     // ── badge children collapsed ──────────────────────────────────────────
     const actions = document.createElement('div');
     actions.className = 'flex items-center gap-0.5';
-    if (Array.isArray(node.children) && node.children.length && collapsed.has(node.id)) {
-        const badge = document.createElement('span');
-        badge.className = 'shrink-0 mt-[3px] text-[11px] text-[#b5b0a9]';
-        badge.textContent = `▸ ${countDescendants(node)}`;
+    const backlinkCount = backlinkCounts[node.id] || 0;
+    if (backlinkCount > 0) {
+        const badge = document.createElement('button');
+        badge.type = 'button';
+        badge.className = 'backlink-badge shrink-0 mt-[3px] h-5 px-1.5 flex items-center gap-1 rounded-full text-[10px] font-semibold text-[#8a857e] transition';
+        badge.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-2.5 h-2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span>${backlinkCount}</span>`;
+        badge.title = 'Show all references';
+        badge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openBacklinks(node.id);
+        });
         actions.append(badge);
+    }
+    if (!node.checked && hasReminder(node.content, node.note)) {
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'item-reminder shrink-0 mt-[3px] w-5 h-5 flex items-center justify-center rounded text-[#c07a12] transition';
+        rm.innerHTML = SVG.clock;
+        rm.title = 'Item memiliki pengingat. Lihat daftar melalui tombol lonceng di toolbar.';
+        rm.addEventListener('click', (e) => {
+            e.stopPropagation();
+            renderReminderPop();
+            els.reminderPop.classList.remove('hidden');
+            const r = els.reminderBtn.getBoundingClientRect();
+            const m = els.reminderPop.getBoundingClientRect();
+            let left = Math.min(r.right, window.innerWidth - m.width - 8);
+            let top = r.bottom + 4;
+            if (top + m.height > window.innerHeight - 8) top = r.top - m.height - 4;
+            els.reminderPop.style.left = `${Math.max(8, left)}px`;
+            els.reminderPop.style.top = `${Math.max(8, top)}px`;
+        });
+        actions.append(rm);
     }
     actions.append(del);
 
     // ── susun baris ───────────────────────────────────────────────────────
-    // urutan: [bulletZone] [checkbox?] [cell] [actions]
+    // urutan: [bulletZone] [cell] [actions]
     row.append(bulletZone);
-    if (checkboxEl) row.append(checkboxEl);
     row.append(cell, actions);
 
     row.dataset.id = node.id;
-    rows.set(node.id, { row, text, bullet, cell, node, checkboxEl });
+    rows.set(node.id, { row, text, bullet, cell, node });
 
     // ── event baris ───────────────────────────────────────────────────────
     row.addEventListener('click', (e) => {
         if (e.target.closest('.bullet') ||
             e.target.closest('.item-del') ||
+            e.target.closest('.backlink-badge') ||
             e.target.closest('.item-chevron') ||
             e.target.closest('.item-checkbox') ||
             e.target.closest('.internal-link') ||
@@ -564,22 +755,11 @@ function buildRow(node, depth) {
         openContextAt(e.clientX, e.clientY, menuItemsFor(node));
     });
 
-    row.addEventListener('mouseenter', () => {
-        hoveredRowId = node.id;
-        clearTimeout(ntHideTimer);
-        updateNodeToolbar();
-    });
-    row.addEventListener('mouseleave', () => {
-        if (hoveredRowId !== node.id) return;
-        hoveredRowId = null;
-        clearTimeout(ntHideTimer);
-        ntHideTimer = setTimeout(hideNodeToolbar, 200);
-    });
-
     row.addEventListener('dragover', (e) => {
-        if (!dragId || dragId === node.id) return;
+        if (!dragId || (dragIds && dragIds.includes(node.id))) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
+        lastDragPoint = { x: e.clientX, y: e.clientY };
+        e.dataTransfer.dropEffect = dragCopy ? 'copy' : 'move';
         const rect = row.getBoundingClientRect();
         const y = e.clientY - rect.top;
         clearDropIndicators();
@@ -599,7 +779,12 @@ function buildRow(node, depth) {
         e.stopPropagation();
         const action = dropAction;
         clearDropIndicators();
-        if (action && dragId) doMove(dragId, action);
+        if (dragIds && dragIds.includes(node.id)) return;
+        if (action && dragId) {
+            if (dragCopy) doCopyDrop(dragId, action);
+            else if (dragIds && dragIds.length > 1) doMoveMany(dragIds, action);
+            else doMove(dragId, action);
+        }
     });
 
     text.addEventListener('keydown', (e) => handleEditKey(e, node.id));
@@ -834,6 +1019,24 @@ function wireInlineImages(textEl, id) {
     });
 }
 
+function wireNoteContent(noteEl) {
+    noteEl.addEventListener('click', (e) => {
+        const link = e.target.closest('.internal-link');
+        if (link) {
+            e.preventDefault();
+            e.stopPropagation();
+            navigateLink(link.dataset.id);
+            return;
+        }
+        const tag = e.target.closest('.item-tag');
+        if (tag) {
+            e.preventDefault();
+            e.stopPropagation();
+            document.dispatchEvent(new CustomEvent('dyn:tag-click', { detail: { tag: tag.textContent.replace(/^#/, '') } }));
+        }
+    });
+}
+
 async function deleteImage(id, url) {
     const rec = rows.get(id);
     if (!rec) return;
@@ -916,7 +1119,6 @@ function toggleMulti(id) {
     else multi.add(id);
     selectedId = id;
     refreshHighlights();
-    updateNodeToolbar();
 }
 
 function clearMulti() {
@@ -925,7 +1127,6 @@ function clearMulti() {
     selAnchor = null;
     selEdge = null;
     refreshHighlights();
-    updateNodeToolbar();
 }
 
 function refreshHighlights() {
@@ -1043,11 +1244,22 @@ async function navigateLink(itemId) {
 
 function loadPrefs() {
     try {
-        const s = JSON.parse(localStorage.getItem('dynalist_prefs') || '{}');
-        showCompleted = s.showCompleted !== false;
-        showNotes = s.showNotes !== false;
+        const s = JSON.parse(localStorage.getItem('abclist_prefs') || '{}');
         theme = s.theme || 'light';
+        spacing = ['dense', 'normal', 'wide'].includes(s.spacing) ? s.spacing : 'normal';
         defaultBullet = ['bullet', 'checklist', 'numbered'].includes(s.defaultBullet) ? s.defaultBullet : 'bullet';
+        fontSize = ['small', 'medium', 'large'].includes(s.fontSize) ? s.fontSize : 'medium';
+        highlightCurrent = s.highlightCurrent !== false;
+        narrow = s.narrow === true;
+        showWordCount = s.showWordCount !== false;
+        bulletZoom = s.bulletZoom === true;
+        reminderNotify = s.reminderNotify === true;
+        globalCompleted = ['show', 'hide'].includes(s.globalCompleted)
+            ? s.globalCompleted
+            : (s.showCompleted !== false ? 'show' : 'hide');
+        globalNotes = ['show', 'first', 'hide'].includes(s.globalNotes)
+            ? s.globalNotes
+            : (s.showNotes !== false ? 'show' : 'hide');
     } catch {
         // ignore
     }
@@ -1055,10 +1267,18 @@ function loadPrefs() {
 
 function savePrefs() {
     try {
-        localStorage.setItem('dynalist_prefs', JSON.stringify({ showCompleted, showNotes, theme, defaultBullet }));
+        localStorage.setItem('abclist_prefs', JSON.stringify({
+            theme, spacing, defaultBullet, fontSize, highlightCurrent, narrow, showWordCount, bulletZoom,
+            globalCompleted, globalNotes, reminderNotify,
+        }));
     } catch {
         // ignore
     }
+}
+
+function applyEffectiveView() {
+    showCompleted = completedOverride !== null ? completedOverride === 'show' : globalCompleted === 'show';
+    notesMode = notesOverride !== null ? notesOverride : globalNotes;
 }
 
 function applyTheme() {
@@ -1070,20 +1290,123 @@ function clearDropIndicators() {
         .forEach((r) => r.classList.remove('drop-before', 'drop-after', 'drop-child'));
 }
 
+function startDragScroll() {
+    if (dragScrollTimer) return;
+    dragScrollTimer = setInterval(() => {
+        if (!dragId && !dragIds) return;
+        const view = els.view;
+        if (!view || !lastDragPoint) return;
+        const r = view.getBoundingClientRect();
+        const edge = 70;
+        if (lastDragPoint.y < r.top + edge) {
+            view.scrollTop = Math.max(0, view.scrollTop - 16);
+        } else if (lastDragPoint.y > r.bottom - edge) {
+            view.scrollTop += 16;
+        }
+    }, 40);
+}
+
+function stopDragScroll() {
+    if (dragScrollTimer) {
+        clearInterval(dragScrollTimer);
+        dragScrollTimer = null;
+    }
+    lastDragPoint = null;
+}
+
+document.addEventListener('dragend', stopDragScroll);
+
+// ── drag item lewat sentuhan (long-press pada bullet) ────────────────────
+function initTouchDrag(bullet, node) {
+    bullet.addEventListener('touchstart', (e) => {
+        if (editing || e.touches.length !== 1) return;
+        touchDragTimer = setTimeout(() => {
+            touchDragTimer = null;
+            const ids = multi.size > 1 && multi.has(node.id) ? [...multi] : [node.id];
+            touchDrag = { id: node.id, ids };
+            dragCopy = false;
+            const rec = rows.get(node.id);
+            if (rec) rec.row.classList.add('opacity-40');
+            if (navigator.vibrate) navigator.vibrate(10);
+        }, 450);
+    }, { passive: true });
+    bullet.addEventListener('touchmove', (e) => {
+        if (!touchDrag || e.touches.length !== 1) return;
+        e.preventDefault();
+        const t = e.touches[0];
+        const el = document.elementFromPoint(t.clientX, t.clientY);
+        const row = el && el.closest ? el.closest('.item-row') : null;
+        clearDropIndicators();
+        if (row && !touchDrag.ids.includes(row.dataset.id)) {
+            const rec = rows.get(row.dataset.id);
+            if (!rec) return;
+            const r = row.getBoundingClientRect();
+            const y = t.clientY - r.top;
+            if (y < r.height * 0.3) {
+                dropAction = { type: 'before', target: rec.node };
+                row.classList.add('drop-before');
+            } else if (y > r.height * 0.7) {
+                dropAction = { type: 'after', target: rec.node };
+                row.classList.add('drop-after');
+            } else {
+                dropAction = { type: 'child', target: rec.node };
+                row.classList.add('drop-child');
+            }
+        } else {
+            dropAction = null;
+        }
+    }, { passive: false });
+    bullet.addEventListener('touchend', (e) => {
+        if (touchDragTimer) {
+            clearTimeout(touchDragTimer);
+            touchDragTimer = null;
+            return;
+        }
+        if (!touchDrag) return;
+        e.preventDefault();
+        const action = dropAction;
+        const drag = touchDrag;
+        touchDrag = null;
+        dropAction = null;
+        clearDropIndicators();
+        const rec = rows.get(drag.id);
+        if (rec) rec.row.classList.remove('opacity-40');
+        if (action && !drag.ids.includes(action.target.id)) {
+            if (dragCopy) doCopyDrop(drag.id, action);
+            else if (drag.ids.length > 1) doMoveMany(drag.ids, action);
+            else doMove(drag.id, action);
+        }
+    });
+    bullet.addEventListener('touchcancel', () => {
+        if (touchDragTimer) {
+            clearTimeout(touchDragTimer);
+            touchDragTimer = null;
+        }
+        if (touchDrag) {
+            touchDrag = null;
+            dropAction = null;
+            clearDropIndicators();
+            const rec = rows.get(node.id);
+            if (rec) rec.row.classList.remove('opacity-40');
+        }
+    });
+}
+
 function indexAmongSiblings(node) {
     const group = flat.filter((f) => (f.node.parent_id || null) === (node.parent_id || null));
     return group.findIndex((f) => f.node.id === node.id);
 }
 
-function numberedIndex(node) {
-    let n = 1;
-    for (const f of flat) {
-        if ((f.node.parent_id || null) === (node.parent_id || null) && f.node.bullet === 'numbered') {
-            if (f.node.id === node.id) return n;
-            n++;
-        }
+function numberedLabel(node) {
+    // Penomoran hierarkis persis view publik (share/publish): 1, 1.1, 1.2.3, dst.
+    const parts = [];
+    let cur = node;
+    while (cur) {
+        parts.unshift(indexAmongSiblings(cur) + 1);
+        const parent = flat.find((f) => f.node.id === cur.parent_id);
+        cur = parent ? parent.node : null;
     }
-    return n;
+    return parts.join('.');
 }
 
 function childCount(id) {
@@ -1093,6 +1416,47 @@ function childCount(id) {
 function isDescendant(ancestorId, id) {
     const f = flat.find((x) => x.node.id === id);
     return f ? f.parents.includes(ancestorId) : false;
+}
+
+async function insertDroppedFiles(dt, parentId) {
+    const files = [...(dt?.files || [])];
+    const text = dt ? dt.getData('text/plain') : '';
+    if (!files.length && !text) return;
+    recordUndo();
+    try {
+        let position = parentId ? childCount(parentId) : flat.filter((f) => !f.node.parent_id).length;
+        let firstId = null;
+        const create = async (content) => {
+            const data = await api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content });
+            if (!firstId) firstId = data.data.id;
+            position++;
+        };
+        if (!files.length) {
+            const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+            for (const line of lines) await create(line);
+        } else {
+            for (const file of files) {
+                if (file.type.startsWith('image/')) {
+                    const url = await uploadImage(file);
+                    if (url) await create(`![](${url})`);
+                    continue;
+                }
+                try {
+                    const body = await file.text();
+                    const lines = body.split(/\r?\n/);
+                    for (const line of lines) {
+                        if (line.trim()) await create(line.slice(0, 5000));
+                    }
+                } catch {
+                    await create(`[${file.name}](${file.name})`);
+                }
+            }
+        }
+        await loadItems();
+        if (firstId) selectItem(firstId);
+    } catch (err) {
+        showFailedAlert(err.message);
+    }
 }
 
 async function doMove(id, action) {
@@ -1127,6 +1491,81 @@ async function doMove(id, action) {
         await api.post(`/documents/${docId}/items/${id}/move`, { parent_id: parentId, position });
         await loadItems();
         selectItem(id);
+    } catch (e) {
+        showFailedAlert(e.message);
+    }
+}
+
+async function doCopyDrop(id, action) {
+    const rec = rows.get(id);
+    const node = rec?.node;
+    if (!node) return;
+    recordUndo();
+    const target = action.target;
+    let parentId = null;
+    let position = 0;
+
+    if (action.type === 'child') {
+        if (isDescendant(id, target.id)) {
+            showFailedAlert('Tidak bisa menyalin item ke dalam dirinya sendiri.');
+            return;
+        }
+        parentId = target.id;
+        position = childCount(target.id);
+    } else {
+        parentId = target.parent_id || null;
+        position = indexAmongSiblings(target) + (action.type === 'after' ? 1 : 0);
+    }
+
+    try {
+        const newId = await createFromSnapshot(snapshotNode(node), parentId, position);
+        await loadItems();
+        selectItem(newId);
+    } catch (e) {
+        showFailedAlert(e.message);
+    }
+}
+
+async function doMoveMany(ids, action) {
+    const target = action.target;
+    const ordered = ids
+        .map((id) => rows.get(id)?.node)
+        .filter(Boolean)
+        .sort((a, b) => {
+            const ai = flat.findIndex((f) => f.node.id === a.id);
+            const bi = flat.findIndex((f) => f.node.id === b.id);
+            return ai - bi;
+        });
+    if (!ordered.length) return;
+    recordUndo();
+    const groupStart = flat.findIndex((f) => f.node.id === ordered[0].id);
+
+    try {
+        if (action.type === 'child') {
+            const base = childCount(target.id);
+            for (let i = 0; i < ordered.length; i++) {
+                await api.post(`/documents/${docId}/items/${ordered[i].id}/move`, { parent_id: target.id, position: base + i });
+            }
+        } else {
+            const parentId = target.parent_id || null;
+            const base = indexAmongSiblings(target) + (action.type === 'after' ? 1 : 0);
+            const sameParent = ordered.every((n) => (n.parent_id || null) === (parentId || null));
+            let seq;
+            let positions;
+            if (sameParent) {
+                const moveDown = base >= groupStart;
+                seq = moveDown ? [...ordered].reverse() : ordered;
+                positions = seq.map(() => base);
+            } else {
+                seq = ordered;
+                positions = seq.map((_, i) => base + i);
+            }
+            for (let i = 0; i < seq.length; i++) {
+                await api.post(`/documents/${docId}/items/${seq[i].id}/move`, { parent_id: parentId, position: positions[i] });
+            }
+        }
+        await loadItems();
+        selectItem(ordered[ordered.length - 1].id);
     } catch (e) {
         showFailedAlert(e.message);
     }
@@ -1172,25 +1611,106 @@ function openNoteEditor(id) {
     });
 }
 
-function exportDoc() {
-    if (!tree.length) return;
-    const lines = [];
-    const walk = (nodes, depth) => {
-        for (const n of nodes) {
-            const prefix = n.checked ? '- [x] ' : '- ';
-            lines.push('  '.repeat(depth) + prefix + (n.content || ''));
-            if (n.note) lines.push('  '.repeat(depth) + '  > ' + n.note);
-            if (Array.isArray(n.children)) walk(n.children, depth + 1);
+function collectHiddenIds() {
+    const hidden = [];
+    const depthFirst = (id) => {
+        for (const f of flat) {
+            if (f.node.parent_id === id) {
+                hidden.push(f.node.id);
+                depthFirst(f.node.id);
+            }
         }
     };
-    walk(tree, 0);
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${(store.selectedNode?.name || 'dokumen').replace(/[^\w.-]+/g, '_')}.md`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    showSuccess('Dokumen diekspor sebagai Markdown.');
+    for (const f of flat) {
+        if (collapsed.has(f.node.id) && Array.isArray(f.node.children) && f.node.children.length) {
+            depthFirst(f.node.id);
+        }
+    }
+    return hidden;
+}
+
+export function getHiddenIds() {
+    return collectHiddenIds();
+}
+
+function openListExportDialog(itemId) {
+    const rec = rows.get(itemId);
+    const label = rec
+        ? (rec.node.content || '(tanpa nama)').replace(/[#*_`=]+/g, '').trim()
+        : 'list';
+    Swal.fire({
+        title: 'Export list',
+        html: `<div class="text-left">
+            <p class="mb-2 text-[13px]">Export <b>${esc(label || '(tanpa nama)')}</b> beserta sub-itemnya — salin konten di bawah atau unduh sebagai file.</p>
+            <div class="flex items-center gap-2">
+                <select id="list-export-format" class="flex-1 rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[13px] bg-white">
+                    <option value="markdown">Markdown (.md)</option>
+                    <option value="opml">OPML (.opml)</option>
+                    <option value="json">JSON (.json)</option>
+                </select>
+                <select id="list-export-indent" class="flex-1 rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[13px] bg-white">
+                    <option value="spaces">Indent: 2 spasi</option>
+                    <option value="asterisks">Bullet: tanda bintang</option>
+                    <option value="dashes">Bullet: tanda strip</option>
+                    <option value="none">Tanpa indent</option>
+                </select>
+            </div>
+            <label class="flex items-center gap-2 mt-2 text-[13px] text-[#3b3936]">
+                <input id="list-export-visible" type="checkbox" class="rounded accent-[#d9a441]">
+                Export hanya item yang terlihat (abaikan yang terlipat)
+            </label>
+            <textarea id="list-export-body" readonly class="mt-2 w-full h-52 resize-y rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[12px] font-mono bg-[#faf9f8] text-[#3b3936]"></textarea>
+            <div class="flex items-center gap-2 mt-2">
+                <button id="list-export-copy" type="button" class="rounded-lg bg-[#7b61ff] px-3 py-1.5 text-[13px] text-white hover:bg-[#6a4fef]">Salin ke clipboard</button>
+                <button id="list-export-download" type="button" class="rounded-lg border border-[#e0dcd5] px-3 py-1.5 text-[13px] text-[#3b3936] hover:bg-[#f4f2ee]">Unduh file</button>
+            </div>
+        </div>`,
+        showConfirmButton: false,
+        showCloseButton: true,
+        didOpen: async () => {
+            const fmt = document.getElementById('list-export-format');
+            const indent = document.getElementById('list-export-indent');
+            const visible = document.getElementById('list-export-visible');
+            const body = document.getElementById('list-export-body');
+            const load = async () => {
+                try {
+                    const params = new URLSearchParams({ format: fmt.value, item_id: itemId, indent: indent.value });
+                    if (visible.checked) params.set('hidden', JSON.stringify(collectHiddenIds()));
+                    const res = await api.get(`/documents/${docId}/export?${params}`);
+                    body.value = res.data.content;
+                    body.dataset.filename = res.data.filename;
+                } catch (e) {
+                    body.value = e.message;
+                }
+            };
+            const download = () => {
+                const name = body.dataset.filename || `list.${fmt.value}`;
+                const blob = new Blob([body.value], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast(`List diexport sebagai ${name}.`);
+            };
+            fmt.addEventListener('change', load);
+            indent.addEventListener('change', load);
+            visible.addEventListener('change', load);
+            document.getElementById('list-export-copy').addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(body.value);
+                    toast('Konten export disalin ke clipboard.');
+                } catch {
+                    toast('Gagal menyalin ke clipboard.', 'error');
+                }
+            });
+            document.getElementById('list-export-download').addEventListener('click', download);
+            await load();
+        },
+    });
 }
 
 function collectTags() {
@@ -1221,7 +1741,7 @@ function renderTags() {
         chip.className = `chip-tag px-2.5 py-1 rounded-full text-[12px] border transition ${
             tagFilter === tag ? 'active' : ''
         }`;
-        chip.textContent = `${tag} ${count}`;
+        chip.innerHTML = `<span style="color:${getTagColor(tag) || '#c07a12'}">${tag}</span> ${count}`;
         chip.addEventListener('click', () => {
             tagFilter = tagFilter === tag ? null : tag;
             renderTags();
@@ -1229,18 +1749,6 @@ function renderTags() {
         });
         els.tags.append(chip);
     });
-}
-
-function countDescendants(node) {
-    let n = 0;
-    const walk = (children) => {
-        for (const c of children) {
-            n++;
-            if (Array.isArray(c.children) && c.children.length) walk(c.children);
-        }
-    };
-    if (Array.isArray(node.children)) walk(node.children);
-    return n;
 }
 
 function toggleCollapse(id) {
@@ -1374,6 +1882,21 @@ async function moveItemToDocument(id, targetDocId) {
     try {
         await api.post(`/documents/${docId}/items/${id}/move-document`, { target_document_id: targetDocId });
         showSuccess('Item dipindahkan');
+        await loadTree();
+        await loadItems();
+    } catch (e) {
+        showFailedAlert(e.message);
+    }
+}
+
+export async function moveItemsToDocument(ids, targetDocId) {
+    const roots = ids.filter((id) => !ids.some((o) => o !== id && flat.find((f) => f.node.id === id)?.parents.includes(o)));
+    recordUndo();
+    try {
+        for (const id of roots) {
+            await api.post(`/documents/${docId}/items/${id}/move-document`, { target_document_id: targetDocId });
+        }
+        showSuccess(roots.length > 1 ? `${roots.length} item dipindahkan` : 'Item dipindahkan');
         await loadTree();
         await loadItems();
     } catch (e) {
@@ -1534,6 +2057,7 @@ function menuItemsFor(node) {
                 { label: 'Expand to level 1', action: () => expandToLevel(1) },
                 { label: 'Expand to level 2', action: () => expandToLevel(2) },
                 { label: 'Expand to level 3', action: () => expandToLevel(3) },
+                { label: 'Expand to level 4', action: () => expandToLevel(4) },
             ],
         });
         items.push({ label: 'Collapse all siblings', action: () => collapseSiblings(node.id) });
@@ -1555,15 +2079,20 @@ function menuItemsFor(node) {
         items.push({
             label: 'Sort',
             children: [
+                { label: 'None', action: () => sortChildren(node.id, 'default') },
                 { label: 'Title (A to Z)', action: () => sortChildren(node.id, 'name_asc') },
                 { label: 'Title (Z to A)', action: () => sortChildren(node.id, 'name_desc') },
-                { label: 'Date (new to old)', action: () => sortChildren(node.id, 'created_desc') },
-                { label: 'Date (old to new)', action: () => sortChildren(node.id, 'created_asc') },
                 { label: 'Unchecked first', action: () => sortChildren(node.id, 'checked') },
+                { label: 'Checked first', action: () => sortChildren(node.id, 'checked_desc') },
+                { label: 'Edited (new to old)', action: () => sortChildren(node.id, 'updated_desc') },
+                { label: 'Edited (old to new)', action: () => sortChildren(node.id, 'updated_asc') },
+                { label: 'Created (new to old)', action: () => sortChildren(node.id, 'created_desc') },
+                { label: 'Created (old to new)', action: () => sortChildren(node.id, 'created_asc') },
+                { label: 'Reverse current', action: () => sortChildren(node.id, 'reverse') },
             ],
         });
     }
-    items.push({ label: 'Search and replace…', action: () => openSearch() });
+    items.push({ label: 'Search and replace…', action: () => openSr() });
     items.push('sep');
 
     if (siblingPosition(node) > 0) {
@@ -1582,18 +2111,18 @@ function menuItemsFor(node) {
     });
     items.push('sep');
 
-    // Checkbox — tampilkan sesuai state saat ini (persis Dynalist)
+    // Checkbox — tampilkan sesuai state saat ini (persis ABCLIST)
     const isChecklist = (node.bullet || 'bullet') === 'checklist';
     if (!isChecklist) {
         items.push({ label: 'Add checkbox', shortcut: 'Ctrl+Shift+C', action: () => setBullet(node.id, 'checklist') });
     } else {
         items.push({ label: 'Remove checkbox', shortcut: 'Ctrl+Shift+C', action: () => setBullet(node.id, 'bullet') });
-        items.push({
-            label: node.checked ? 'Uncheck' : 'Check off',
-            shortcut: 'Ctrl+Enter',
-            action: () => toggleCheck(node.id),
-        });
     }
+    items.push({
+        label: node.checked ? 'Uncheck' : 'Check off',
+        shortcut: 'Ctrl+Enter',
+        action: () => toggleCheck(node.id),
+    });
     if (hasChildren) {
         items.push({ label: 'Add checkbox to children', action: () => setBulletChildren(node.id, 'checklist') });
         items.push({ label: 'Remove checkbox from children', action: () => setBulletChildren(node.id, 'bullet') });
@@ -1608,8 +2137,17 @@ function menuItemsFor(node) {
 
     items.push({ label: 'Manage sharing…', action: () => openItemSharing() });
     items.push({ label: 'Get link', action: () => copyItemLink(node.id) });
+    items.push({ label: 'Copy internal link', action: () => copyInternalLink(node.id) });
     items.push({ label: 'Show all references', action: () => openBacklinks(node.id) });
-    items.push({ label: 'Export…', action: () => exportDoc() });
+    items.push({ label: 'Export…', action: () => openListExportDialog(node.id) });
+    const inboxDoc = findInbox();
+    if (inboxDoc) {
+        items.push({
+            label: 'Add to inbox',
+            action: () => moveItemToDocument(node.id, inboxDoc.id),
+            disabled: inboxDoc.id === docId,
+        });
+    }
     const docNode = store.selectedNode;
     if (docNode) {
         items.push({
@@ -1627,6 +2165,33 @@ function menuItemsFor(node) {
             },
         });
     }
+    items.push('sep');
+
+    const headings = [['Clear heading', 0], ['H1', 1], ['H2', 2], ['H3', 3]];
+    headings.forEach(([label, h]) => {
+        items.push({
+            label: (node.heading || 0) === h ? `✓ ${label}` : label,
+            action: () => setHeading(node.id, h),
+        });
+    });
+    items.push('sep');
+
+    const colors = [
+        ['Clear color', ''],
+        ['Red', '#dc2626'],
+        ['Orange', '#ea580c'],
+        ['Yellow', '#d9a900'],
+        ['Green', '#16a34a'],
+        ['Blue', '#2563eb'],
+        ['Purple', '#7c3aed'],
+    ];
+    colors.forEach(([label, c]) => {
+        items.push({
+            label: (node.color || null) === (c || null) ? `✓ ${label}` : label,
+            swatch: c,
+            action: () => setColor(node.id, c || null),
+        });
+    });
     items.push('sep');
 
     items.push({ label: 'Copy', shortcut: 'Ctrl+C', action: () => copyItems() });
@@ -1650,34 +2215,6 @@ function menuItemsFor(node) {
     }
     items.push('sep');
     items.push({ label: 'Revision history…', action: () => openRevisions(node.id) });
-
-    const headings = [['None', 0], ['Heading 1', 1], ['Heading 2', 2], ['Heading 3', 3]];
-    headings.forEach(([label, h]) => {
-        items.push({
-            label: (node.heading || 0) === h ? `✓ ${label}` : label,
-            action: () => setHeading(node.id, h),
-        });
-    });
-    items.push('sep');
-
-    const colors = [
-        ['None', ''],
-        ['Red', '#dc2626'],
-        ['Orange', '#ea580c'],
-        ['Amber', '#d97706'],
-        ['Green', '#16a34a'],
-        ['Blue', '#2563eb'],
-        ['Purple', '#7c3aed'],
-        ['Gray', '#6b7280'],
-    ];
-    colors.forEach(([label, c]) => {
-        items.push({
-            label: (node.color || null) === (c || null) ? `✓ ${label}` : label,
-            swatch: c,
-            action: () => setColor(node.id, c || null),
-        });
-    });
-    items.push('sep');
 
     const currentBullet = node.bullet || 'bullet';
     items.push({
@@ -1770,6 +2307,18 @@ async function copyItemLink(id) {
     }
 }
 
+async function copyInternalLink(id) {
+    const rec = rows.get(id);
+    const label = (rec?.node.content || '').trim() || 'Item';
+    const link = `[[${label}|${id}]]`;
+    try {
+        await navigator.clipboard.writeText(link);
+        toast('Tautan internal disalin ke clipboard.');
+    } catch {
+        toast('Gagal menyalin tautan.', 'error');
+    }
+}
+
 function openItemSharing() {
     const docNode = store.selectedNode && store.selectedNode.id === docId
         ? store.selectedNode
@@ -1780,42 +2329,7 @@ function openItemSharing() {
 async function openBacklinks(id) {
     const rec = rows.get(id);
     if (!rec) return;
-    Swal.fire({
-        title: 'Backlinks',
-        html: '<div class="text-left"><p id="bl-body" class="text-[13px] text-[#8a857e]">Memuat…</p></div>',
-        showConfirmButton: false,
-        showCloseButton: true,
-        didOpen: async () => {
-            const body = document.getElementById('bl-body');
-            try {
-                const res = await api.get(`/items/${id}/backlinks`);
-                const data = res.data || [];
-                if (!data.length) {
-                    body.innerHTML = 'Tidak ada item lain yang menautkan ke item ini.';
-                    return;
-                }
-                body.removeAttribute('id');
-                body.className = 'space-y-1';
-                data.forEach((b) => {
-                    const btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = 'w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-black/[0.05]';
-                    btn.innerHTML = `<span class="truncate font-medium text-[#5a5650]">${esc(b.label || b.content)}</span>
-                        <span class="ml-auto shrink-0 text-[11px] text-[#b5b0a9]">${esc(b.document_name)}</span>`;
-                    btn.addEventListener('click', async () => {
-                        Swal.close();
-                        const node = highlightDocument(b.document_id);
-                        if (!node) store.select(b.document_id, { id: b.document_id, type: 'document', name: b.document_name });
-                        await openDocument(b.document_id);
-                        zoomToItem(b.id);
-                    });
-                    body.append(btn);
-                });
-            } catch (e) {
-                body.innerHTML = `<span class="text-red-600">${esc(e.message)}</span>`;
-            }
-        },
-    });
+    import('./backlinks').then((m) => m.showForItem(id));
 }
 
 function timeAgo(iso) {
@@ -1951,11 +2465,14 @@ function toggleBulletType(id, type) {
 }
 
 async function setBulletChildren(id, bullet) {
-    const children = flat.filter((f) => f.node.parent_id === id).map((f) => f.node);
-    if (!children.length) return;
+    const rec = rows.get(id);
+    if (!rec) return;
+    // Persis ABCLIST: "Add checkbox to children" = item itu sendiri + semua descendant
+    const targets = [rec.node, ...flat.filter((f) => f.parents.includes(id)).map((f) => f.node)];
+    if (!targets.length) return;
     recordUndo();
     try {
-        await Promise.all(children.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet })));
+        await Promise.all(targets.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet })));
         await loadItems();
     } catch (e) {
         showFailedAlert(e.message);
@@ -2156,12 +2673,12 @@ function updateZoomBar() {
 function selectItem(id) {
     selectedId = id;
     refreshHighlights();
-    updateNodeToolbar();
     const rec = rows.get(id);
     if (rec) {
         rec.row.scrollIntoView({ block: 'nearest' });
         rec.row.focus({ preventScroll: true });
     }
+    document.dispatchEvent(new CustomEvent('dyn:item-selected', { detail: id }));
 }
 
 function unrenderMath(el) {
@@ -2178,7 +2695,6 @@ function startEdit(id, evt) {
     const rec = rows.get(id);
     if (!rec) return;
     editing = true;
-    updateNodeToolbar();
     rec.text.contentEditable = 'true';
     unrenderMath(rec.text);
     rec.text.focus();
@@ -2208,7 +2724,6 @@ async function commitEdit(id) {
     rec.text.contentEditable = 'false';
     const value = contentFromElement(rec.text);
     if (value === (rec.node.content || '')) {
-        updateNodeToolbar();
         return false;
     }
     const previous = rec.node.content || '';
@@ -2218,13 +2733,11 @@ async function commitEdit(id) {
         await api.patch(`/documents/${docId}/items/${id}`, { content: value });
         rec.text.innerHTML = contentHtml(value);
         wireInlineImages(rec.text, id);
-        updateNodeToolbar();
         return true;
     } catch (e) {
         rec.node.content = previous;
         rec.text.innerHTML = contentHtml(previous);
         showFailedAlert(e.message);
-        updateNodeToolbar();
         return false;
     }
 }
@@ -2237,7 +2750,6 @@ function cancelEdit(id) {
     rec.text.contentEditable = 'false';
     rec.text.innerHTML = contentHtml(rec.node.content || '');
     wireInlineImages(rec.text, id);
-    updateNodeToolbar();
 }
 
 function hasTextSelectionInside(id) {
@@ -2299,11 +2811,8 @@ function handleEditKey(e, id) {
         } else if (key === 'enter') {
             e.preventDefault();
             e.stopPropagation();
-            // Ctrl+Enter = toggle check, tapi hanya jika item adalah checklist
-            const rec = rows.get(id);
-            if (rec && (rec.node.bullet || 'bullet') === 'checklist') {
-                commitEdit(id).then(() => toggleCheck(id));
-            }
+            // Ctrl+Enter = tandai selesai / batal (berlaku utk semua item, persis ABCLIST)
+            commitEdit(id).then(() => toggleCheck(id));
         } else if (key === 'c' && !e.shiftKey) {
             if (hasTextSelectionInside(id)) return;
             e.preventDefault();
@@ -2346,7 +2855,7 @@ function handleEditKey(e, id) {
         } else if (!e.shiftKey && key === 'i') {
             e.preventDefault();
             e.stopPropagation();
-            wrapInline(rows.get(id)?.text, '*', '*');
+            wrapInline(rows.get(id)?.text, '__', '__');
         } else if (!e.shiftKey && key === 'k') {
             e.preventDefault();
             e.stopPropagation();
@@ -2389,7 +2898,7 @@ function handleEditKey(e, id) {
         } else if (e.shiftKey && key === 'l') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => cycleColor(id));
+            commitEdit(id).then(() => cycleDocColor());
         } else if (e.shiftKey && key === 'm') {
             e.preventDefault();
             e.stopPropagation();
@@ -2484,17 +2993,17 @@ async function editIndent(id, dir) {
 }
 
 async function enterCreateSibling(id) {
-    await commitEdit(id);
+    commitEdit(id);
     const rec = rows.get(id);
     if (!rec) return;
-    await createItemAt(rec.node.parent_id || null, siblingPosition(rec.node) + 1);
+    await createItemAt(rec.node.parent_id || null, siblingPosition(rec.node) + 1, rec.node.bullet);
 }
 
 async function enterCreateSiblingAbove(id) {
-    await commitEdit(id);
+    commitEdit(id);
     const rec = rows.get(id);
     if (!rec) return;
-    await createItemAt(rec.node.parent_id || null, Math.max(0, siblingPosition(rec.node)));
+    await createItemAt(rec.node.parent_id || null, Math.max(0, siblingPosition(rec.node)), rec.node.bullet);
 }
 
 async function enterCreateSiblingSplit(id) {
@@ -2507,34 +3016,38 @@ async function enterCreateSiblingSplit(id) {
         return;
     }
     recordUndo();
-    await commitEdit(id);
+    commitEdit(id);
     const node = rec.node;
-    const pos = siblingPosition(node) + 1;
-    try {
-        const data = await api.post(`/documents/${docId}/items`, { parent_id: node.parent_id || null, position: pos, content: tail, bullet: defaultBullet });
-        const newId = data.data.id;
-        const newNode = { ...data.data, children: [] };
-        insertNodeLocally(node.parent_id || null, pos, newNode);
-        if (!collapsed.has(id)) {
-            const children = flat.filter((f) => f.node.parent_id === node.id).map((f) => f.node);
-            for (let i = 0; i < children.length; i++) {
-                await api.post(`/documents/${docId}/items/${children[i].id}/move`, { parent_id: newId, position: i });
+    if (hasChildren) {
+        const pos = siblingPosition(node) + 1;
+        try {
+            const data = await api.post(`/documents/${docId}/items`, { parent_id: node.parent_id || null, position: pos, content: tail, bullet: node.bullet || defaultBullet });
+            const newId = data.data.id;
+            const newNode = { ...data.data, children: [] };
+            insertNodeLocally(node.parent_id || null, pos, newNode);
+            if (!collapsed.has(id)) {
+                const children = flat.filter((f) => f.node.parent_id === node.id).map((f) => f.node);
+                for (let i = 0; i < children.length; i++) {
+                    await api.post(`/documents/${docId}/items/${children[i].id}/move`, { parent_id: newId, position: i });
+                }
+                const oldParent = findNodeInTree(id);
+                if (oldParent) {
+                    newNode.children = oldParent.children || [];
+                    oldParent.children = [];
+                    newNode.children.forEach((c) => (c.parent_id = newId));
+                }
             }
-            const oldParent = findNodeInTree(id);
-            if (oldParent) {
-                newNode.children = oldParent.children || [];
-                oldParent.children = [];
-                newNode.children.forEach((c) => (c.parent_id = newId));
-            }
+            buildFlat();
+            applyZoomFilter();
+            render();
+            selectItem(newId);
+            startEdit(newId);
+        } catch (e) {
+            showFailedAlert(e.message);
         }
-        buildFlat();
-        applyZoomFilter();
-        render();
-        selectItem(newId);
-        startEdit(newId);
-    } catch (e) {
-        showFailedAlert(e.message);
+        return;
     }
+    await createItemAt(node.parent_id || null, siblingPosition(node) + 1, node.bullet, tail);
 }
 
 function handleEnter(id) {
@@ -2627,7 +3140,6 @@ function setCaretAtOffset(textEl, targetLen) {
 async function toggleCheck(id) {
     const rec = rows.get(id);
     if (!rec) return;
-    if ((rec.node.bullet || 'bullet') !== 'checklist') return; // hanya checklist
     recordUndo();
     const next = !rec.node.checked;
     rec.node.checked = next;
@@ -2828,54 +3340,94 @@ function removeNodeLocally(id) {
     splice(tree);
 }
 
-async function createItemAt(parentId, position) {
+async function createItemAt(parentId, position, bullet, content) {
     recordUndo();
-    try {
-        const data = await api.post(`/documents/${docId}/items`, {
+    const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const node = {
+        id: tempId,
+        parent_id: parentId || null,
+        content: content || '',
+        note: '',
+        checked: false,
+        heading: 0,
+        color: null,
+        bullet: bullet || defaultBullet,
+        tags: [],
+        sort_order: 0,
+        children: [],
+    };
+    insertNodeLocally(parentId, position, node);
+    buildFlat();
+    applyZoomFilter();
+    render();
+    selectItem(tempId);
+    startEdit(tempId);
+    const promise = api
+        .post(`/documents/${docId}/items`, {
             parent_id: parentId,
             ...(position != null ? { position } : {}),
-            bullet: defaultBullet,
+            content: node.content,
+            bullet: node.bullet,
+        })
+        .then((data) => data.data.id)
+        .catch((e) => {
+            unregisterPendingItem(tempId);
+            throw e;
         });
-        const node = { ...data.data, children: [] };
-        insertNodeLocally(parentId, position, node);
+    registerPendingItem(tempId, promise);
+    try {
+        const realId = await promise;
+        node.id = realId;
+        const rec = rows.get(tempId);
+        if (rec) {
+            rows.delete(tempId);
+            rows.set(realId, rec);
+            rec.node = node;
+            if (rec.row) rec.row.dataset.id = realId;
+        }
+        if (selectedId === tempId) selectedId = realId;
+        unregisterPendingItem(tempId);
+        return realId;
+    } catch (e) {
+        removeNodeLocally(tempId);
         buildFlat();
         applyZoomFilter();
         render();
-        selectItem(node.id);
-        startEdit(node.id);
-    } catch (e) {
         showFailedAlert(e.message);
+        return null;
     }
 }
 
 async function addItem() {
     let parentId = null;
+    let bullet;
     if (selectedId) {
         const rec = rows.get(selectedId);
         if (rec && rec.node.parent_id) parentId = rec.node.parent_id;
+        bullet = rec?.node.bullet;
     }
-    await createItemAt(parentId);
+    await createItemAt(parentId, undefined, bullet);
 }
 
 async function addSiblingBelow() {
     if (!selectedId) return addItem();
     const node = rows.get(selectedId)?.node;
     if (!node) return;
-    await createItemAt(node.parent_id || null, siblingPosition(node) + 1);
+    await createItemAt(node.parent_id || null, siblingPosition(node) + 1, node.bullet);
 }
 
 async function addChildItem() {
     if (!selectedId) return addItem();
     const node = rows.get(selectedId)?.node;
     if (!node) return;
-    await createItemAt(node.id, childCount(node.id));
+    await createItemAt(node.id, childCount(node.id), node.bullet);
 }
 
 async function addSiblingAbove() {
     if (!selectedId) return;
     const node = rows.get(selectedId)?.node;
     if (!node) return;
-    await createItemAt(node.parent_id || null, Math.max(0, siblingPosition(node)));
+    await createItemAt(node.parent_id || null, Math.max(0, siblingPosition(node)), node.bullet);
 }
 
 function nav(dir) {
@@ -2906,7 +3458,6 @@ function extendSelect(dir) {
     for (let i = lo; i <= hi; i++) multi.add(ids[i]);
     selectItem(selEdge);
     refreshHighlights();
-    updateNodeToolbar();
 }
 
 function selectUpward() {
@@ -2923,7 +3474,6 @@ function selectUpward() {
     if (parentSet.size) parentSet.forEach((p) => multi.add(p));
     else flat.forEach((f) => multi.add(f.node.id));
     refreshHighlights();
-    updateNodeToolbar();
 }
 
 function toggleCollapseAll() {
@@ -2947,6 +3497,24 @@ async function cycleColor(id) {
     if (!rec) return;
     const i = Math.max(0, COLOR_CYCLE.indexOf(rec.node.color || ''));
     await setColor(id, COLOR_CYCLE[(i + 1) % COLOR_CYCLE.length] || null);
+}
+
+// Persis dynalist: Ctrl+Shift+L = toggle color label DOKUMEN (bukan item).
+const DOC_COLOR_CYCLE = [null, '#dc2626', '#ea580c', '#d97706', '#16a34a', '#2563eb', '#7c3aed', '#6b7280'];
+
+async function cycleDocColor() {
+    const node = store.selectedNode;
+    if (!node || node.type === 'folder') return;
+    const i = Math.max(0, DOC_COLOR_CYCLE.indexOf(node.color || null));
+    const color = DOC_COLOR_CYCLE[(i + 1) % DOC_COLOR_CYCLE.length];
+    try {
+        await api.patch(`/documents/${docId}`, { color });
+        node.color = color;
+        await loadTree();
+        toast(color ? 'Warna label dokumen diubah.' : 'Warna label dokumen dihapus.');
+    } catch (e) {
+        showFailedAlert(e.message);
+    }
 }
 
 function insertLineBreak(container) {
@@ -3035,6 +3603,7 @@ function recordUndo() {
     if (undoStack.length > 100) undoStack.shift();
     redoStack.length = 0;
     updateUndoButtons();
+    markItemOp();
 }
 
 async function restoreSnapshot(snap) {
@@ -3163,7 +3732,7 @@ export function isDocOpen() {
 
 export function openSearch() {
     if (!docId) return;
-    openSr();
+    openDocSearch();
 }
 
 function openSr() {
@@ -3174,6 +3743,183 @@ function openSr() {
 
 function closeSr() {
     els.srModal.classList.add('hidden');
+}
+
+// ---- Cari dalam dokumen (bar pencarian ala ABCLIST) ----
+let searchMatches = [];
+let searchIndex = -1;
+let savedCollapsed = null;
+
+function openDocSearch() {
+    if (!docId) return;
+    closeSr();
+    els.docSearchbar.classList.remove('hidden');
+    els.docSearchInput.value = '';
+    els.docSearchCount.textContent = '';
+    const hint = document.getElementById('doc-search-flat-hint');
+    if (hint) hint.classList.add('hidden');
+    flatSearch = false;
+    savedCollapsed = null;
+    searchMatches = [];
+    searchIndex = -1;
+    clearDocSearchHighlight();
+    els.docSearchInput.focus();
+}
+
+function closeDocSearch() {
+    els.docSearchbar.classList.add('hidden');
+    if (flatSearch) setFlatSearch(false);
+    searchMatches = [];
+    searchIndex = -1;
+    clearDocSearchHighlight();
+    if (editing && selectedId && rows.has(selectedId)) rows.get(selectedId).text.focus();
+    else if (els.outline) els.outline.focus();
+}
+
+function clearDocSearchHighlight() {
+    els.outline.querySelectorAll('.search-hit, .search-current, .search-dim').forEach((r) => {
+        r.classList.remove('search-hit', 'search-current', 'search-dim');
+    });
+}
+
+function parseSearchQuery(q) {
+    const tokens = q.trim().split(/\s+/);
+    const ops = { is: null, edited: null, tag: null, atDate: null, remDate: null };
+    const keywords = [];
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    for (const t of tokens) {
+        if (/^is:(completed|checked|uncompleted|unchecked|starred|bookmarked)$/i.test(t)) {
+            const v = t.slice(3).toLowerCase();
+            if (v === 'completed' || v === 'checked') ops.is = true;
+            else if (v === 'uncompleted' || v === 'unchecked') ops.is = false;
+            else ops.is = 'starred';
+        } else if (/^edited:(today|yesterday|\d+[dwmy])$/i.test(t)) {
+            const v = t.slice(7).toLowerCase();
+            if (v === 'today') ops.edited = 0;
+            else if (v === 'yesterday') ops.edited = 1;
+            else {
+                const n = parseInt(v, 10);
+                const mult = v.endsWith('w') ? 7 : v.endsWith('m') ? 30 : v.endsWith('y') ? 365 : 1;
+                ops.edited = n * mult;
+            }
+        } else if (/^#[A-Za-z0-9_-]+$/.test(t)) {
+            ops.tag = t.slice(1).toLowerCase();
+        } else if (/^@\d{4}-\d{2}-\d{2}$/.test(t)) {
+            ops.atDate = t.slice(1);
+        } else if (/^@(today|yesterday)$/i.test(t)) {
+            const d = new Date();
+            if (/yesterday/i.test(t)) d.setDate(d.getDate() - 1);
+            ops.atDate = iso(d);
+        } else if (/^!\d{4}-\d{2}-\d{2}$/.test(t)) {
+            ops.remDate = t.slice(1);
+        } else {
+            keywords.push(t);
+        }
+    }
+    return { ops, keyword: keywords.join(' ') };
+}
+
+function setFlatSearch(on) {
+    if (on === flatSearch) return;
+    flatSearch = on;
+    if (on) {
+        savedCollapsed = new Set(collapsed);
+        collapsed.clear();
+    } else if (savedCollapsed) {
+        collapsed = savedCollapsed;
+        savedCollapsed = null;
+    }
+    const hint = document.getElementById('doc-search-flat-hint');
+    if (hint) hint.classList.toggle('hidden', !on);
+    render();
+    runDocSearch();
+}
+
+function runDocSearch() {
+    const raw = els.docSearchInput.value.trim();
+    clearDocSearchHighlight();
+    searchMatches = [];
+    searchIndex = -1;
+    if (!raw) {
+        els.docSearchCount.textContent = '';
+        return;
+    }
+    const { ops, keyword } = parseSearchQuery(raw);
+    const kw = keyword.toLowerCase();
+    const hits = [];
+    for (const f of flat) {
+        if (!rows.has(f.node.id)) continue;
+        if (ops.is !== null) {
+            if (ops.is === 'starred') {
+                if (!isItemBookmarked(f.node.id)) continue;
+            } else if ((f.node.checked === true) !== ops.is) {
+                continue;
+            }
+        }
+        if (ops.edited !== null) {
+            const ts = new Date(f.node.updated_at).getTime();
+            if (Number.isNaN(ts) || ts < Date.now() - ops.edited * 86400000) continue;
+        }
+        const content = String(f.node.content || '');
+        const note = String(f.node.note || '');
+        if (ops.tag !== null && !`${content}\n${note}`.toLowerCase().includes(`#${ops.tag}`)) continue;
+        if (ops.atDate !== null && !(`${content}\n${note}`).includes(`@${ops.atDate}`) && !(`${content}\n${note}`).includes(`!${ops.atDate}`)) continue;
+        if (ops.remDate !== null && !(`${content}\n${note}`).includes(`!${ops.remDate}`)) continue;
+        if (kw && !`${content}\n${note}`.toLowerCase().includes(kw)) continue;
+        hits.push(f.node.id);
+    }
+    searchMatches = hits;
+    if (!searchMatches.length) {
+        els.docSearchCount.textContent = 'Tidak ditemukan';
+        return;
+    }
+    els.docSearchCount.textContent = `${searchMatches.length} hasil`;
+    for (const f of flat) {
+        if (!rows.has(f.node.id)) continue;
+        if (!searchMatches.includes(f.node.id)) rows.get(f.node.id).row.classList.add('search-dim');
+    }
+    for (const id of searchMatches) rows.get(id).row.classList.add('search-hit');
+    goToDocSearch(0, false);
+}
+
+function goToDocSearch(step, scroll = true) {
+    if (!searchMatches.length) return;
+    searchIndex = (searchIndex + step + searchMatches.length) % searchMatches.length;
+    const id = searchMatches[searchIndex];
+    const rec = rows.get(id);
+    if (!rec) return;
+    els.outline.querySelectorAll('.search-current').forEach((r) => r.classList.remove('search-current'));
+    rec.row.classList.add('search-current');
+    els.docSearchCount.textContent = `${searchIndex + 1} / ${searchMatches.length}`;
+    if (scroll) rec.row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function wireDocSearch() {
+    els.docSearchInput.addEventListener('input', runDocSearch);
+    els.docSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (e.ctrlKey || e.metaKey) {
+                closeDocSearch();
+                import('./quick-finder').then(({ open }) => open('item'));
+                return;
+            }
+            if (e.shiftKey) {
+                setFlatSearch(!flatSearch);
+                return;
+            }
+            goToDocSearch(1);
+        } else if (e.key === 'Tab' && e.shiftKey) {
+            e.preventDefault();
+            goToDocSearch(-1);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeDocSearch();
+        }
+    });
+    els.docSearchPrev.addEventListener('click', () => goToDocSearch(-1));
+    els.docSearchNext.addEventListener('click', () => goToDocSearch(1));
+    els.docSearchClose.addEventListener('click', closeDocSearch);
 }
 
 // ---- Trash ----
@@ -3187,11 +3933,11 @@ function showTrashView(show) {
 export async function openTrash() {
     if (!docId) return;
     closeSr();
+    closeDocSearch();
     selectedId = null;
     editing = false;
     multi.clear();
     refreshHighlights();
-    updateNodeToolbar();
     showTrashView(true);
     await loadTrash();
 }
@@ -3620,15 +4366,19 @@ async function srReplaceAll() {
 
 // ---- Wiring ----
 function setShowCompleted(v) {
-    showCompleted = v;
-    savePrefs();
+    completedOverride = v ? 'show' : 'hide';
+    saveUiState();
+    applyEffectiveView();
     render();
+    if (!document.getElementById('view-options')?.classList.contains('hidden')) renderViewOptions();
 }
 
 function setShowNotes(v) {
-    showNotes = v;
-    savePrefs();
+    notesOverride = v ? 'show' : 'hide';
+    saveUiState();
+    applyEffectiveView();
     render();
+    if (!document.getElementById('view-options')?.classList.contains('hidden')) renderViewOptions();
 }
 
 function cycleTheme() {
@@ -3651,6 +4401,120 @@ function setDefaultBullet(b) {
     renderViewOptions();
 }
 
+function setSpacing(v) {
+    spacing = v;
+    savePrefs();
+    applySpacing();
+    renderViewOptions();
+}
+
+function applySpacing() {
+    const outline = els.outline;
+    if (!outline) return;
+    outline.classList.remove('spacing-dense', 'spacing-normal', 'spacing-wide');
+    outline.classList.add(`spacing-${spacing}`);
+}
+
+// ---- Prefs visual (font size, narrow, dll) ----
+function applyPrefsVisual() {
+    const outline = els.outline;
+    if (outline) {
+        outline.classList.remove('font-small', 'font-medium', 'font-large');
+        outline.classList.add(`font-${fontSize}`);
+    }
+    document.body.classList.toggle('narrow', narrow);
+    document.body.classList.toggle('no-highlight', !highlightCurrent);
+    renderSettingsModal();
+    if (!document.getElementById('view-options')?.classList.contains('hidden')) renderViewOptions();
+}
+
+function updateWordCount() {
+    if (!els.statusWords || !els.statusBar) return;
+    if (!docId) return;
+    let count = 0;
+    for (const f of flat) {
+        const c = String(f.node.content || '');
+        const n = String(f.node.note || '');
+        count += c.trim() ? c.trim().split(/\s+/).length : 0;
+        count += n.trim() ? n.trim().split(/\s+/).length : 0;
+    }
+    if (showWordCount) {
+        els.statusCount.textContent = `${flat.length.toLocaleString('id-ID')} item`;
+        els.statusWords.textContent = `${count.toLocaleString('id-ID')} kata`;
+    } else {
+        els.statusCount.textContent = '';
+        els.statusWords.textContent = '';
+    }
+}
+
+let saveStatusTimer = null;
+function setSaveStatus(text, ok) {
+    if (!els.statusSave) return;
+    els.statusSave.textContent = text;
+    els.statusSave.style.color = ok ? '' : '#c07a12';
+    clearTimeout(saveStatusTimer);
+    saveStatusTimer = setTimeout(() => {
+        els.statusSave.textContent = 'Tersimpan';
+        els.statusSave.style.color = '';
+    }, 1500);
+}
+
+// ---- Settings modal ----
+function openSettings() {
+    renderSettingsModal();
+    els.settingsModal.classList.remove('hidden');
+}
+
+function renderSettingsModal() {
+    if (!els.settingsModal) return;
+    els.settingsModal.querySelectorAll('.pref-btn').forEach((b) => {
+        const pref = b.dataset.pref;
+        const val = b.dataset.val;
+        const current = pref === 'fontSize' ? fontSize : pref === 'globalCompleted' ? globalCompleted : pref === 'globalNotes' ? globalNotes : spacing;
+        b.classList.toggle('pref-active', current === val);
+    });
+    els.settingsModal.querySelectorAll('[data-pref-toggle]').forEach((cb) => {
+        const pref = cb.dataset.prefToggle;
+        const current = pref === 'highlightCurrent' ? highlightCurrent : pref === 'narrow' ? narrow : pref === 'bulletZoom' ? bulletZoom : showWordCount;
+        cb.checked = current;
+    });
+}
+
+function wireSettings() {
+    if (!els.settingsModal) return;
+    els.settingsModal.querySelectorAll('[data-settings-close]').forEach((el) => el.addEventListener('click', () => els.settingsModal.classList.add('hidden')));
+    els.settingsModal.querySelectorAll('.pref-btn').forEach((b) => {
+        b.addEventListener('click', () => {
+            const pref = b.dataset.pref;
+            const val = b.dataset.val;
+            if (pref === 'theme') theme = val;
+            else if (pref === 'spacing') spacing = val;
+            else if (pref === 'fontSize') fontSize = val;
+            else if (pref === 'globalCompleted') globalCompleted = val;
+            else if (pref === 'globalNotes') globalNotes = val;
+            savePrefs();
+            applyTheme();
+            applySpacing();
+            applyPrefsVisual();
+            applyEffectiveView();
+            render();
+        });
+    });
+    els.settingsModal.querySelectorAll('[data-pref-toggle]').forEach((cb) => {
+        cb.addEventListener('change', () => {
+            const pref = cb.dataset.prefToggle;
+            if (pref === 'highlightCurrent') highlightCurrent = cb.checked;
+            else if (pref === 'narrow') narrow = cb.checked;
+            else if (pref === 'bulletZoom') bulletZoom = cb.checked;
+            else if (pref === 'showWordCount') showWordCount = cb.checked;
+            else if (pref === 'reminderNotify') reminderNotify = cb.checked;
+            savePrefs();
+            applyPrefsVisual();
+            updateWordCount();
+        });
+    });
+}
+
 function renderViewOptions() {
     const pop = document.getElementById('view-options');
     if (!pop) return;
@@ -3658,9 +4522,10 @@ function renderViewOptions() {
         const group = b.dataset.view;
         const val = b.dataset.val;
         let active = false;
-        if (group === 'completed') active = (val === 'show') === showCompleted;
-        else if (group === 'notes') active = (val === 'show') === showNotes;
+        if (group === 'completed') active = (val === 'global' && completedOverride === null) || (completedOverride !== null && val === completedOverride);
+        else if (group === 'notes') active = (val === 'global' && notesOverride === null) || (notesOverride !== null && val === notesOverride);
         else if (group === 'theme') active = theme === val;
+        else if (group === 'spacing') active = spacing === val;
         else if (group === 'bullet') active = defaultBullet === val;
         b.classList.toggle('view-opt-active', active);
         b.style.fontWeight = active ? '600' : '400';
@@ -3700,34 +4565,99 @@ function closeViewOptions() {
     if (pop) pop.classList.add('hidden');
 }
 
-function hideNodeToolbar() {
-    clearTimeout(ntHideTimer);
-    if (editing) return;
-    const nt = document.getElementById('node-toolbar');
-    if (nt) nt.classList.add('hidden');
+function updateReminderBadge() {
+    if (!els.reminderBadge) return;
+    const upcoming = flat.filter((f) => !f.node.checked && hasReminder(f.node.content, f.node.note)).length;
+    els.reminderBadge.classList.toggle('hidden', upcoming === 0);
+    if (upcoming) els.reminderBadge.textContent = upcoming > 9 ? '9+' : String(upcoming);
 }
 
-function updateNodeToolbar() {
-    const nt = document.getElementById('node-toolbar');
-    if (!nt) return;
-    const rec = selectedId && rows.get(selectedId);
-    if (!docId || multi.size || !rec || !rec.row.isConnected || !editing) {
-        nt.classList.add('hidden');
-        return;
+function renderReminderPop() {
+    if (!els.reminderList) return;
+    const upcoming = flat
+        .filter((f) => !f.node.checked && hasReminder(f.node.content, f.node.note))
+        .map((f) => {
+            const all = parseReminders(`${f.node.content}\n${f.node.note}`);
+            const next = all.sort((a, b) => a - b)[0];
+            return { node: f.node, next };
+        })
+        .sort((a, b) => a.next - b.next);
+    els.reminderList.innerHTML = '';
+    if (!upcoming.length) {
+        const empty = document.createElement('div');
+        empty.className = 'px-3 py-3 text-[12px] text-[#8a857e]';
+        empty.textContent = 'Tidak ada item dengan pengingat. Ketik !2026-08-10 pada item.';
+        els.reminderList.appendChild(empty);
+    } else {
+        for (const r of upcoming) {
+            const row = document.createElement('button');
+            row.className = 'view-opt w-full flex items-center gap-2 px-3 py-1.5 text-left';
+            row.innerHTML = `<span class="w-5 h-5 shrink-0 flex items-center justify-center text-[#c07a12]">${SVG.clock}</span>
+                <span class="flex-1 min-w-0"><span class="block truncate">${escapeHtml(r.node.content || '(tanpa judul)')}</span>
+                <span class="block text-[11px] ${r.next < new Date() ? 'text-red-600' : 'text-[#8a857e]'}">${r.next.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}${r.next < new Date() ? ' — terlambat' : ''}</span></span>`;
+            row.addEventListener('click', () => {
+                if (r.node.document_id === docId) {
+                    zoomToItem(r.node.id);
+                    closeReminderPop();
+                } else {
+                    openDocument(r.node.document_id).then(() => zoomToItem(r.node.id));
+                    closeReminderPop();
+                }
+            });
+            els.reminderList.appendChild(row);
+        }
     }
-    nt.classList.remove('hidden');
-    const r = rec.row.getBoundingClientRect();
-    const m = nt.getBoundingClientRect();
-    let left = r.left;
-    if (left + m.width > window.innerWidth - 8) left = window.innerWidth - m.width - 8;
-    let top = r.top - m.height - 6;
-    if (top < 8) top = r.bottom + 6;
-    nt.style.left = `${Math.max(8, left)}px`;
-    nt.style.top = `${top}px`;
+    const on = reminderNotify && 'Notification' in window && Notification.permission === 'granted';
+    els.reminderNotifyLabel.textContent = `Notifikasi browser ${on ? 'aktif' : 'mati'}`;
+}
+
+function toggleReminderPop(btn) {
+    if (els.reminderPop.classList.contains('hidden')) {
+        closeMenu();
+        closeViewOptions();
+        renderReminderPop();
+        els.reminderPop.classList.remove('hidden');
+        const r = btn.getBoundingClientRect();
+        const m = els.reminderPop.getBoundingClientRect();
+        let left = Math.min(r.right, window.innerWidth - m.width - 8);
+        let top = r.bottom + 4;
+        if (top + m.height > window.innerHeight - 8) top = r.top - m.height - 4;
+        els.reminderPop.style.left = `${Math.max(8, left)}px`;
+        els.reminderPop.style.top = `${Math.max(8, top)}px`;
+    } else {
+        closeReminderPop();
+    }
+}
+
+function closeReminderPop() {
+    if (els.reminderPop) els.reminderPop.classList.add('hidden');
 }
 
 function wireToolbar() {
     els.bookmarkBtn.addEventListener('click', toggleBookmark);
+    els.reminderBtn.addEventListener('click', () => toggleReminderPop(els.reminderBtn));
+    els.reminderNotifyToggle.addEventListener('click', async () => {
+        if (!('Notification' in window)) {
+            toast('Browser tidak mendukung notifikasi.');
+            return;
+        }
+        if (Notification.permission === 'granted') {
+            reminderNotify = !reminderNotify;
+            savePrefs();
+            renderReminderPop();
+            toast(reminderNotify ? 'Notifikasi pengingat aktif.' : 'Notifikasi pengingat dimatikan.');
+        } else if (Notification.permission === 'denied') {
+            toast('Izin notifikasi ditolak oleh browser.');
+        } else {
+            const perm = await Notification.requestPermission();
+            if (perm === 'granted') {
+                reminderNotify = true;
+                savePrefs();
+                renderReminderPop();
+                toast('Notifikasi pengingat aktif.');
+            }
+        }
+    });
 
     const undoBtn = document.getElementById('undo-btn');
     const redoBtn = document.getElementById('redo-btn');
@@ -3735,31 +4665,16 @@ function wireToolbar() {
     if (redoBtn) redoBtn.addEventListener('click', redo);
     updateUndoButtons();
 
-    const nt = document.getElementById('node-toolbar');
-    if (nt) {
-        nt.addEventListener('mouseenter', () => {
-            clearTimeout(ntHideTimer);
-            hoveredRowId = selectedId;
-            updateNodeToolbar();
-        });
-        nt.addEventListener('mouseleave', () => {
-            if (hoveredRowId === null) return;
-            hoveredRowId = null;
-            clearTimeout(ntHideTimer);
-            ntHideTimer = setTimeout(hideNodeToolbar, 200);
-        });
-    }
-
-    document.querySelectorAll('#doc-toolbar [data-act], #node-toolbar [data-act]').forEach((btn) => {
+    document.querySelectorAll('#doc-toolbar [data-act]').forEach((btn) => {
         btn.addEventListener('click', () => {
             const act = btn.dataset.act;
             if (act === 'add') addItem();
-            else if (act === 'search') openSr();
+            else if (act === 'search') openDocSearch();
             else if (act === 'view-options') toggleViewOptions(btn);
             else if (act === 'zoom-in') zoomInto(selectedId);
             else if (act === 'note') openNoteEditor(selectedId);
             else if (act === 'bold') applyFormat(selectedId, '**', '**');
-            else if (act === 'italic') applyFormat(selectedId, '*', '*');
+            else if (act === 'italic') applyFormat(selectedId, '__', '__');
             else if (act === 'code') applyFormat(selectedId, '`', '`');
             else if (act === 'heading') toggleHeading(selectedId);
             else if (act === 'color') cycleColor(selectedId);
@@ -3796,8 +4711,9 @@ function wireToolbar() {
                 toggleContextMenu(btn, menuItemsFor(node));
             }
             else if (act === 'toggle-show-completed') setShowCompleted(!showCompleted);
-            else if (act === 'toggle-show-notes') setShowNotes(!showNotes);
+            else if (act === 'toggle-show-notes') setShowNotes(notesMode === 'hide');
             else if (act === 'toggle-theme') cycleTheme();
+            else if (act === 'settings') openSettings();
         });
     });
 
@@ -3806,9 +4722,18 @@ function wireToolbar() {
         b.addEventListener('click', () => {
             const group = b.dataset.view;
             const val = b.dataset.val;
-            if (group === 'completed') setShowCompleted(val === 'show');
-            else if (group === 'notes') setShowNotes(val === 'show');
-            else if (group === 'theme') setTheme(val);
+            if (group === 'completed') {
+                completedOverride = val === 'global' ? null : val;
+                saveUiState();
+                applyEffectiveView();
+                render();
+            } else if (group === 'notes') {
+                notesOverride = val === 'global' ? null : val;
+                saveUiState();
+                applyEffectiveView();
+                render();
+            } else if (group === 'theme') setTheme(val);
+            else if (group === 'spacing') setSpacing(val);
             else if (group === 'bullet') setDefaultBullet(val);
             closeViewOptions();
         });
@@ -3819,15 +4744,20 @@ function wireToolbar() {
         if (pop && !pop.classList.contains('hidden') && !pop.contains(e.target) && !e.target.closest('[data-act="view-options"]')) {
             pop.classList.add('hidden');
         }
+        if (els.reminderPop && !els.reminderPop.classList.contains('hidden') && !els.reminderPop.contains(e.target) && !e.target.closest('#reminder-btn')) {
+            els.reminderPop.classList.add('hidden');
+        }
     });
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') closeViewOptions();
+        if (e.key === 'Escape') {
+            closeViewOptions();
+            closeReminderPop();
+        }
     });
     window.addEventListener('resize', () => {
         closeViewOptions();
-        updateNodeToolbar();
+        closeReminderPop();
     });
-    if (els.view) els.view.addEventListener('scroll', updateNodeToolbar, { passive: true });
 }
 
 function wireOutline() {
@@ -3878,6 +4808,28 @@ function wireOutline() {
         }
     });
 
+    // ── drop file eksternal (gambar / teks) ke outline ───────────────────
+    els.outline.addEventListener('dragover', (e) => {
+        if ([...(e.dataTransfer?.types || [])].includes('Files')) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+            els.outline.classList.add('file-drop-target');
+        }
+    });
+    els.outline.addEventListener('dragleave', () => {
+        els.outline.classList.remove('file-drop-target');
+    });
+    els.outline.addEventListener('drop', async (e) => {
+        const types = [...(e.dataTransfer?.types || [])];
+        if (!types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        els.outline.classList.remove('file-drop-target');
+        const rowEl = e.target && e.target.closest ? e.target.closest('.item-row') : null;
+        const parentId = rowEl ? rowEl.dataset.id : null;
+        await insertDroppedFiles(e.dataTransfer, parentId);
+    }, true);
+
     els.outline.addEventListener('keydown', (e) => {
         if (editing || e.defaultPrevented) return;
 
@@ -3888,7 +4840,6 @@ function wireOutline() {
                 multi.clear();
                 flat.forEach((f) => multi.add(f.node.id));
                 refreshHighlights();
-                updateNodeToolbar();
             } else if (key === 'a') {
                 e.preventDefault();
                 selectUpward();
@@ -3913,7 +4864,7 @@ function wireOutline() {
             } else if (!e.shiftKey && key === 'i') {
                 e.preventDefault();
                 e.stopPropagation();
-                if (selectedId) applyFormat(selectedId, '*', '*');
+                if (selectedId) applyFormat(selectedId, '__', '__');
             } else if (!e.shiftKey && key === 'k') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -3943,7 +4894,7 @@ function wireOutline() {
                 toggleHeading(selectedId);
             } else if (e.shiftKey && key === 'l') {
                 e.preventDefault();
-                cycleColor(selectedId);
+                cycleDocColor();
             } else if (e.shiftKey && key === 'c') {
                 e.preventDefault();
                 toggleBulletType(selectedId, 'checklist');
@@ -3973,10 +4924,17 @@ function wireOutline() {
                 if (selectedId) toggleItemBookmark(selectedId);
             } else if (key === 'z' && !e.shiftKey) {
                 e.preventDefault();
-                undo();
+                if (docUndoIsNewest()) undoLastDocCreation();
+                else undo();
             } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
                 e.preventDefault();
                 redo();
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                if (flat.length) selectItem(flat[0].node.id);
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                if (flat.length) selectItem(flat[flat.length - 1].node.id);
             }
             return;
         }
@@ -3993,6 +4951,18 @@ function wireOutline() {
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             nav(-1);
+        } else if (e.key === 'PageDown') {
+            e.preventDefault();
+            nav(10);
+        } else if (e.key === 'PageUp') {
+            e.preventDefault();
+            nav(-10);
+        } else if (e.key === 'Home') {
+            e.preventDefault();
+            if (flat.length) selectItem(flat[0].node.id);
+        } else if (e.key === 'End') {
+            e.preventDefault();
+            if (flat.length) selectItem(flat[flat.length - 1].node.id);
         } else if (e.key === 'Enter') {
             e.preventDefault();
             addSiblingBelow();
@@ -4017,7 +4987,7 @@ function wireOutline() {
                 if (rec && (rec.node.bullet || 'bullet') === 'checklist') {
                     toggleCheck(selectedId);
                 }
-                // bukan checklist = tidak ada efek (persis Dynalist)
+                // bukan checklist = tidak ada efek (persis ABCLIST)
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
@@ -4027,6 +4997,16 @@ function wireOutline() {
 }
 
 function wireTitle() {
+    els.docMenuBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const node = store.selectedNode;
+        if (!node || node.type === 'folder') return;
+        import('./context-menu').then(({ openDocMenuAt }) => {
+            const r = els.docMenuBtn.getBoundingClientRect();
+            openDocMenuAt(r.left, r.bottom + 4, node);
+        });
+    });
+
     els.title.addEventListener('change', async () => {
         const v = els.title.value.trim();
         if (!v) {
@@ -4066,6 +5046,11 @@ export function init() {
     cacheEls();
     loadPrefs();
     applyTheme();
+    applySpacing();
+    applyPrefsVisual();
+    wireSettings();
+    window.addEventListener('dyn:save-start', () => setSaveStatus('Menyimpan…', false));
+    window.addEventListener('dyn:save-end', () => setSaveStatus('Tersimpan', true));
     els.zoomBar = createZoomBar();
     els.container.insertBefore(els.zoomBar, els.outline);
     updateZoomBar();
@@ -4074,6 +5059,7 @@ export function init() {
     wireOutline();
     wireTitle();
     wireSr();
+    wireDocSearch();
 
     document.addEventListener('dyn:select', () => {
         const node = store.selectedNode;
@@ -4081,4 +5067,15 @@ export function init() {
         if (node.type === 'folder') showFolder(node);
         else openDocument(node.id);
     });
+
+    document.addEventListener('dyn:tag-colors-changed', () => {
+        applyTagColors(els.outline);
+        renderTags();
+    });
+
+    setInterval(() => {
+        if (!docId) return;
+        notifyDueReminders();
+        updateReminderBadge();
+    }, 30000);
 }

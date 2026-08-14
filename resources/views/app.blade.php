@@ -1,13 +1,13 @@
 @extends('layouts.app')
 
 @section('page', 'app')
-@section('title', 'Dynalist')
+@section('title', 'ABCLIST')
 
 @section('content')
 <div class="h-screen flex overflow-hidden">
 
     {{-- Vertical icon rail --}}
-    <aside class="w-11 shrink-0 bg-[#e9e8e7] border-r border-black/5 flex flex-col items-center py-2 gap-1">
+    <aside id="rail" class="w-11 shrink-0 bg-[#e9e8e7] border-r border-black/5 flex flex-col items-center py-2 gap-1">
         <button id="rail-toggle-pane" title="Toggle file pane"
             class="w-8 h-8 flex items-center justify-center rounded-lg text-[#5a5650] hover:bg-black/10 hover:text-black transition"
             aria-label="Toggle file pane">
@@ -21,6 +21,14 @@
             aria-label="Bookmarks">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px]">
                 <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+            </svg>
+        </button>
+        <button id="rail-toggle-backlinks" title="Backlinks"
+            class="w-8 h-8 flex items-center justify-center rounded-lg text-[#5a5650] hover:bg-black/10 hover:text-black transition"
+            aria-label="Backlinks">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px]">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
             </svg>
         </button>
         <button id="rail-toggle-trash" title="Trash dokumen"
@@ -56,6 +64,17 @@
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
                         <circle cx="11" cy="11" r="8" />
                         <path d="m21 21-4.3-4.3" />
+                    </svg>
+                </button>
+                <button id="sort-docs-btn" title="Urutkan dokumen A–Z"
+                    class="w-7 h-7 flex items-center justify-center rounded-lg text-[#5a5650] hover:bg-black/10 hover:text-black transition"
+                    aria-label="Urutkan dokumen">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                        <path d="m3 16 4 4 4-4" />
+                        <path d="M7 20V4" />
+                        <path d="M11 8h10" />
+                        <path d="M17 4v4" />
+                        <path d="M17 8v12" />
                     </svg>
                 </button>
                 <button id="collapse-pane" title="Collapse file pane"
@@ -129,7 +148,6 @@
             </button>
         </div>
         <div id="bookmarks-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-px">
-            <p class="px-1 py-4 text-center text-[13px] text-[#8a857e]">Memuat…</p>
         </div>
     </aside>
 
@@ -154,7 +172,6 @@
             </div>
         </div>
         <div id="trash-docs-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-px">
-            <p class="px-1 py-4 text-center text-[13px] text-[#8a857e]">Memuat…</p>
         </div>
     </aside>
 
@@ -173,7 +190,7 @@
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="w-[17px] h-[17px]"><path d="M5 12h14M12 5v14"/></svg>
                 </button>
                 <span class="w-px h-5 bg-black/10 mx-1 shrink-0"></span>
-                <button data-act="search" title="Cari & ganti (Ctrl+F)" class="tool-btn">
+                <button data-act="search" title="Cari dalam dokumen (Ctrl+F)" class="tool-btn">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
                 </button>
                 <button data-act="view-options" title="Opsi tampilan" class="tool-btn">
@@ -187,68 +204,36 @@
                 <button id="bookmark-doc-btn" title="Bookmark dokumen" class="tool-btn">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                 </button>
+                <button id="reminder-btn" title="Pengingat" class="tool-btn relative">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                    <span id="reminder-badge" class="hidden absolute -top-1 -right-1 min-w-[15px] h-[15px] px-0.5 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center leading-none"></span>
+                </button>
+                <button data-act="settings" title="Pengaturan" class="tool-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
                 <button id="help-btn" title="Pintasan keyboard (?)" class="tool-btn">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
                 </button>
             </div>
         </div>
 
-        {{-- Floating node toolbar (like Dynalist) --}}
-        <div id="node-toolbar" class="hidden fixed z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-lg border border-black/10 bg-white shadow-lg">
-            <button data-act="zoom-in" title="Zoom in (Ctrl+])" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
-            </button>
-            <button data-act="note" title="Catatan (Shift+Enter)" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-            </button>
-            <span class="w-px h-4 bg-black/10 mx-0.5 shrink-0"></span>
-            <button data-act="bold" title="Tebal (Ctrl+B)" class="tool-btn font-bold text-[14px]">B</button>
-            <button data-act="italic" title="Miring (Ctrl+I)" class="tool-btn italic text-[14px]">I</button>
-            <button data-act="code" title="Kode (Ctrl+Shift+E)" class="tool-btn text-[12px] font-semibold">&lt;/&gt;</button>
-            <span class="w-px h-4 bg-black/10 mx-0.5 shrink-0"></span>
-            <button data-act="heading" title="Judul (Ctrl+Shift+H)" class="tool-btn font-semibold text-[13px]">H</button>
-            <button data-act="color" title="Warna (Ctrl+Shift+L)" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-            </button>
-            <span class="w-px h-4 bg-black/10 mx-0.5 shrink-0"></span>
-            <button data-act="indent" title="Indent (Tab)" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M21 6H10M21 12H10M21 18H10"/><path d="M4 9l3 3-3 3"/></svg>
-            </button>
-            <button data-act="unindent" title="Unindent (Shift+Tab)" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M21 6H10M21 12H10M21 18H10"/><path d="m7 9-3 3 3 3"/></svg>
-            </button>
-            <span class="w-px h-4 bg-black/10 mx-0.5 shrink-0"></span>
-            <button data-act="move-up" title="Pindah ke atas (Ctrl+↑)" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="m18 15-6-6-6 6"/></svg>
-            </button>
-            <button data-act="move-down" title="Pindah ke bawah (Ctrl+↓)" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="m6 9 6 6 6-6"/></svg>
-            </button>
-            <span class="w-px h-4 bg-black/10 mx-0.5 shrink-0"></span>
-            <button data-act="number-children" title="Nomori anak" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>
-            </button>
-            <button data-act="toggle-check" title="Tandai / batal tandai (Spasi)" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
-            </button>
-            <button data-act="delete" title="Hapus item (Del)" class="tool-btn is-danger">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-            <span class="w-px h-4 bg-black/10 mx-0.5 shrink-0"></span>
-            <button data-act="more" title="Menu item" class="tool-btn">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><circle cx="12" cy="5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></svg>
-            </button>
-        </div>
-
-        {{-- View options popover (like Dynalist) --}}
+        {{-- View options popover (like ABCLIST) --}}
         <div id="view-options" class="hidden fixed z-40 min-w-[210px] rounded-lg border border-black/10 bg-white shadow-lg py-1 text-[13px] text-[#24221f]">
             <div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-[#8a857e]">Item selesai</div>
+            <button data-view="completed" data-val="global" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Global</button>
             <button data-view="completed" data-val="show" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Tampilkan</button>
             <button data-view="completed" data-val="hide" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Sembunyikan</button>
             <div class="h-px bg-black/10 my-1"></div>
             <div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-[#8a857e]">Catatan</div>
+            <button data-view="notes" data-val="global" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Global</button>
             <button data-view="notes" data-val="show" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Tampilkan</button>
+            <button data-view="notes" data-val="first" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Baris pertama</button>
             <button data-view="notes" data-val="hide" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Sembunyikan</button>
+            <div class="h-px bg-black/10 my-1"></div>
+            <div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-[#8a857e]">Spacing</div>
+            <button data-view="spacing" data-val="dense" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Padat</button>
+            <button data-view="spacing" data-val="normal" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Normal</button>
+            <button data-view="spacing" data-val="wide" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Luas</button>
             <div class="h-px bg-black/10 my-1"></div>
             <div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-[#8a857e]">Tema</div>
             <button data-view="theme" data-val="light" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Terang</button>
@@ -261,6 +246,16 @@
             <button data-view="bullet" data-val="numbered" class="view-opt w-full flex items-center gap-2 px-3 py-1 hover:bg-[#f4f3f2]">Numbered</button>
         </div>
 
+        {{-- Popover pengingat --}}
+        <div id="reminder-pop" class="hidden fixed z-40 min-w-[240px] max-w-[320px] rounded-lg border border-black/10 bg-white shadow-lg py-1 text-[13px] text-[#24221f]">
+            <div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-[#8a857e]">Pengingat</div>
+            <div id="reminder-list" class="max-h-72 overflow-y-auto py-0.5"></div>
+            <div class="h-px bg-black/10 my-1"></div>
+            <button id="reminder-notify-toggle" class="view-opt w-full flex items-center gap-2 px-3 py-1.5 hover:bg-[#f4f3f2]">
+                <span id="reminder-notify-label" class="flex-1">Notifikasi browser</span>
+            </button>
+        </div>
+
         <div id="doc-view" class="flex-1 overflow-y-auto">
             <div id="main-empty" class="h-full flex flex-col items-center justify-center text-center px-6">
                 <div class="empty-blob inline-flex items-center justify-center w-16 h-16 rounded-2xl text-[#c07a12] mb-5">
@@ -270,22 +265,43 @@
                         <path d="M5 12a7 7 0 0 1 14 0" />
                     </svg>
                 </div>
-                <h2 class="font-display text-xl font-semibold text-[#24221f]">Selamat datang di Dynalist</h2>
+                <h2 class="font-display text-xl font-semibold text-[#24221f]">Selamat datang di ABCLIST</h2>
                 <p class="text-sm text-[#8a857e] mt-2 max-w-sm leading-relaxed">
                     Pilih dokumen di panel kiri, atau buat dokumen baru dengan tombol
                     <span class="font-medium text-[#24221f]">New</span>.
                 </p>
             </div>
 
+        {{-- Bar cari dalam dokumen (Ctrl+F) seperti ABCLIST --}}
+        <div id="doc-searchbar" class="hidden fixed top-11 left-1/2 -translate-x-1/2 z-30 w-full max-w-lg px-3">
+            <div class="flex items-center gap-2 rounded-xl border border-black/10 bg-white shadow-lg px-3 py-2">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4 shrink-0 text-[#8a857e]"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input id="doc-search-input" type="text" placeholder="Cari dalam dokumen… (Ctrl+Enter = semua dokumen, Shift+Enter = semua item)"
+                    class="flex-1 min-w-0 bg-transparent border-none focus:outline-none text-sm text-[#24221f] placeholder:text-[#c5c0b9]">
+                <span id="doc-search-count" class="shrink-0 text-[12px] text-[#8a857e] whitespace-nowrap"></span>
+                <span id="doc-search-flat-hint" class="hidden shrink-0 text-[11px] font-medium text-[#c07a12] whitespace-nowrap">Semua item</span>
+                <span class="shrink-0 w-px h-4 bg-black/10"></span>
+                <button id="doc-search-prev" title="Sebelumnya (Shift+Tab)" class="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-[#5a5650] hover:bg-black/5">↑</button>
+                <button id="doc-search-next" title="Berikutnya (Enter)" class="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-[#5a5650] hover:bg-black/5">↓</button>
+                <button id="doc-search-close" title="Tutup (Esc)" class="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-[#8a857e] hover:bg-black/5">✕</button>
+            </div>
+        </div>
+
             <div id="doc-container" class="hidden max-w-3xl mx-auto px-10 py-8">
                 <div id="doc-breadcrumb" class="hidden flex items-center gap-1.5 text-[12.5px] text-[#8a857e] mb-1"></div>
-                <input id="doc-title"
-                    class="w-full text-3xl font-semibold text-[#24221f] bg-transparent border-none focus:outline-none placeholder:text-[#c5c0b9]"
-                    placeholder="Tanpa judul">
+                <div class="group flex items-center gap-1">
+                    <input id="doc-title"
+                        class="flex-1 min-w-0 text-3xl font-semibold text-[#24221f] bg-transparent border-none focus:outline-none placeholder:text-[#c5c0b9]"
+                        placeholder="Tanpa judul">
+                    <button id="doc-menu-btn" title="Menu dokumen"
+                        class="opacity-0 group-hover:opacity-100 shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-[#8a857e] hover:bg-black/5 hover:text-[#24221f] transition"
+                        aria-label="Menu dokumen">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+                    </button>
+                </div>
                 <p id="doc-meta" class="text-xs text-[#b5b0a9] mt-1.5"></p>
                 <div id="doc-tags" class="hidden flex flex-wrap gap-1.5 mt-4"></div>
                 <div id="outline" class="mt-7"></div>
-                <div id="outline-loading" class="hidden py-10 text-center text-sm text-[#8a857e]">Memuat…</div>
             </div>
 
             <div id="tag-results" class="hidden max-w-3xl mx-auto px-10 py-8">
@@ -294,6 +310,7 @@
                     <button id="tag-results-close" type="button"
                         class="text-[13px] text-[#c07a12] hover:underline">Tutup</button>
                 </div>
+                <div id="tag-results-color" class="hidden flex items-center gap-1.5 mb-4"></div>
                 <div id="tag-results-list" class="space-y-1"></div>
             </div>
 
@@ -312,7 +329,35 @@
                 <div id="trash-list" class="space-y-1"></div>
             </div>
         </div>
+
+        {{-- Status bar (word count + save indicator) --}}
+        <div id="status-bar" class="hidden shrink-0 h-[24px] px-3 border-t border-black/5 bg-white flex items-center justify-end gap-4 text-[11px] text-[#8a857e]">
+            <span id="status-save" class="flex items-center gap-1.5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3"><path d="M20 6 9 17l-5-5"/></svg>
+                <span id="status-save-text">Tersimpan</span>
+            </span>
+            <span id="status-count" class="whitespace-nowrap"></span>
+            <span id="status-words" class="whitespace-nowrap"></span>
+        </div>
     </main>
+
+    {{-- Backlinks panel (overlay kanan) --}}
+    <aside id="backlinks-panel"
+        class="hidden w-72 shrink-0 bg-[#f4f3f2] border-l border-black/10 flex-col absolute right-0 top-0 bottom-0 z-30 shadow-xl">
+        <div class="flex items-center justify-between px-3 pt-3 pb-2">
+            <h2 class="text-[11px] font-bold uppercase tracking-wider text-[#8a857e]">Backlinks</h2>
+            <button id="backlinks-close" title="Tutup"
+                class="w-7 h-7 flex items-center justify-center rounded-md text-[#5a5650] hover:bg-black/10 hover:text-black transition"
+                aria-label="Tutup backlinks">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                    <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div id="backlinks-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-px">
+            <p class="px-1 py-4 text-center text-[13px] text-[#8a857e]">Pilih item untuk melihat referensinya.</p>
+        </div>
+    </aside>
 </div>
 
 {{-- Quick Finder modal --}}
@@ -371,7 +416,7 @@
     <div class="absolute inset-0 bg-black/25" data-help-close></div>
     <div class="relative max-w-2xl mx-auto mt-14 bg-white rounded-xl shadow-2xl border border-black/10 p-5 max-h-[82vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold text-[#24221f]">Pintasan keyboard</h3>
+            <h3 class="text-sm font-semibold text-[#24221f]">Pintasan &amp; Formatting</h3>
             <button id="help-close" type="button" class="text-[12px] text-[#8a857e] hover:text-[#24221f]">Tutup</button>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
@@ -412,15 +457,110 @@
                 <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">L</kbd><span>Siklus warna</span></div>
                 <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">M</kbd><span>Pindah ke dokumen lain</span></div>
                 <div class="help-head">Global</div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">F</kbd><span>Cari &amp; ganti</span></div>
+                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">F</kbd><span>Cari dalam dokumen</span></div>
                 <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">P</kbd> / <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">O</kbd><span>Cari cepat dokumen</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">O</kbd><span>Cari cepat item</span></div>
+                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">P</kbd> / <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">O</kbd><span>Cari cepat item</span></div>
                 <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">B</kbd><span>Panel bookmark</span></div>
                 <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">F</kbd><span>Alihkan panel kiri</span></div>
-                <div class="help-row"><kbd class="kbd">?</kbd><span>Bantuan ini</span></div>
+                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">?</kbd> / <kbd class="kbd">?</kbd><span>Bantuan ini</span></div>
                 <div class="help-row"><kbd class="kbd">Esc</kbd><span>Tutup dialog</span></div>
             </div>
         </div>
+        <div class="mt-6">
+            <div class="help-head mb-2">Format (Markdown)</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5">
+                <div class="help-row"><code class="md">**teks**</code><span>Tebal</span></div>
+                <div class="help-row"><code class="md">__teks__</code><span>Miring</span></div>
+                <div class="help-row"><code class="md">~~teks~~</code><span>Coret</span></div>
+                <div class="help-row"><code class="md">==teks==</code><span>Sorotan</span></div>
+                <div class="help-row"><code class="md">`kode`</code><span>Kode inline</span></div>
+                <div class="help-row"><code class="md">```blok```</code><span>Blok kode</span></div>
+                <div class="help-row"><code class="md">[label](url)</code><span>Tautan</span></div>
+                <div class="help-row"><code class="md">![alt](url)</code><span>Gambar</span></div>
+                <div class="help-row"><code class="md">[[label|id-item]]</code><span>Tautan antar item</span></div>
+                <div class="help-row"><code class="md">#tag</code><span>Tag</span></div>
+                <div class="help-row"><code class="md">$$e=mc^2$$</code><span>Rumus (LaTeX)</span></div>
+                <div class="help-row"><code class="md">@2026-08-10</code><span>Tanggal</span></div>
+                <div class="help-row"><code class="md">!2026-08-10</code><span>Pengingat (bisa + jam: !2026-08-10 14:30)</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{-- Settings modal --}}
+<div id="settings-modal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/25" data-settings-close></div>
+    <div class="relative max-w-md mx-auto mt-16 bg-white rounded-xl shadow-2xl border border-black/10 p-5 space-y-4 max-h-[82vh] overflow-y-auto">
+        <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-[#24221f]">Pengaturan</h3>
+            <button type="button" data-settings-close class="text-[12px] text-[#8a857e] hover:text-[#24221f]">Tutup</button>
+        </div>
+
+        <div>
+            <div class="settings-label">Tema</div>
+            <div class="flex items-center gap-1">
+                <button data-pref="theme" data-val="light" class="pref-btn flex-1">Terang</button>
+                <button data-pref="theme" data-val="dark" class="pref-btn flex-1">Gelap</button>
+                <button data-pref="theme" data-val="sepia" class="pref-btn flex-1">Sepia</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="settings-label">Spacing</div>
+            <div class="flex items-center gap-1">
+                <button data-pref="spacing" data-val="dense" class="pref-btn flex-1">Padat</button>
+                <button data-pref="spacing" data-val="normal" class="pref-btn flex-1">Normal</button>
+                <button data-pref="spacing" data-val="wide" class="pref-btn flex-1">Luas</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="settings-label">Ukuran font</div>
+            <div class="flex items-center gap-1">
+                <button data-pref="fontSize" data-val="small" class="pref-btn flex-1">Kecil</button>
+                <button data-pref="fontSize" data-val="medium" class="pref-btn flex-1">Sedang</button>
+                <button data-pref="fontSize" data-val="large" class="pref-btn flex-1">Besar</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="settings-label">Default item selesai</div>
+            <div class="flex items-center gap-1">
+                <button data-pref="globalCompleted" data-val="show" class="pref-btn flex-1">Tampilkan</button>
+                <button data-pref="globalCompleted" data-val="hide" class="pref-btn flex-1">Sembunyikan</button>
+            </div>
+        </div>
+
+        <div>
+            <div class="settings-label">Default catatan</div>
+            <div class="flex items-center gap-1">
+                <button data-pref="globalNotes" data-val="show" class="pref-btn flex-1">Tampilkan</button>
+                <button data-pref="globalNotes" data-val="first" class="pref-btn flex-1">Baris pertama</button>
+                <button data-pref="globalNotes" data-val="hide" class="pref-btn flex-1">Sembunyikan</button>
+            </div>
+        </div>
+
+        <div class="settings-label">Tampilan</div>
+        <label class="flex items-center gap-2.5 text-[13px] text-[#24221f]">
+            <input type="checkbox" data-pref-toggle="highlightCurrent" class="rounded accent-[#d9a441]">
+            Sorot item aktif
+        </label>
+        <label class="flex items-center gap-2.5 text-[13px] text-[#24221f]">
+            <input type="checkbox" data-pref-toggle="narrow" class="rounded accent-[#d9a441]">
+            Tampilan sempit (kolom dokumen lebih sempit)
+        </label>
+        <label class="flex items-center gap-2.5 text-[13px] text-[#24221f]">
+            <input type="checkbox" data-pref-toggle="bulletZoom" class="rounded accent-[#d9a441]">
+            Klik bullet = zoom ke item
+        </label>
+        <label class="flex items-center gap-2.5 text-[13px] text-[#24221f]">
+            <input type="checkbox" data-pref-toggle="showWordCount" class="rounded accent-[#d9a441]">
+            Tampilkan jumlah kata di bilah bawah
+        </label>
+        <label class="flex items-center gap-2.5 text-[13px] text-[#24221f]">
+            <input type="checkbox" data-pref-toggle="reminderNotify" class="rounded accent-[#d9a441]">
+            Notifikasi browser untuk pengingat (!tanggal)
+        </label>
     </div>
 </div>
 

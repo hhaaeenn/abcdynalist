@@ -117,7 +117,7 @@ return [
             'dsn' => env('MONGO_DSN', 'mongodb://127.0.0.1:27017'),
             'database' => env('MONGO_DATABASE', 'laravel'),
             'options' => [
-                'appName' => 'dynalist',
+                'appName' => 'abclist',
             ],
         ],
 
