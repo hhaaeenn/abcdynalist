@@ -7,9 +7,11 @@ use App\Models\Bookmark;
 use App\Models\Document;
 use App\Models\Item;
 use App\Models\ItemRevision;
+use App\Support\BlobStorage;
 use App\Support\TreeBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use MongoDB\BSON\ObjectId;
 use MongoDB\BSON\Regex;
 
@@ -123,13 +125,46 @@ class ItemController extends Controller
             'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
         ]);
 
-        $path = $request->file('image')->store('images', 'public');
+        $disk = config('filesystems.image');
+
+        if ($disk === 'blob') {
+            $blob = app(BlobStorage::class);
+
+            if (! $blob->enabled()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'BLOB_READ_WRITE_TOKEN belum di-set',
+                ], 500);
+            }
+
+            $file = $request->file('image');
+            $path = 'images/'.Str::random(40).'.'.$file->getClientOriginalExtension();
+            $url = $blob->put($path, (string) file_get_contents($file->getRealPath()), (string) $file->getMimeType());
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Image uploaded',
+                'data' => [
+                    'url' => $url,
+                    'path' => $path,
+                ],
+            ]);
+        }
+
+        $path = $request->file('image')->store('images', $disk);
+
+        if (! $path) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menyimpan gambar',
+            ], 500);
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Image uploaded',
             'data' => [
-                'url' => Storage::disk('public')->url($path),
+                'url' => Storage::disk($disk)->url($path),
                 'path' => $path,
             ],
         ]);
@@ -168,7 +203,11 @@ class ItemController extends Controller
             ], 404);
         }
 
-        Storage::disk('public')->delete($path);
+        if (config('filesystems.image') === 'blob') {
+            app(BlobStorage::class)->delete($path);
+        } else {
+            Storage::disk(config('filesystems.image'))->delete($path);
+        }
 
         return response()->json([
             'status' => 'success',

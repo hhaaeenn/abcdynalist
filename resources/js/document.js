@@ -1041,7 +1041,8 @@ async function deleteImage(id, url) {
     const rec = rows.get(id);
     if (!rec) return;
     recordUndo();
-    const path = String(url || '').split('/storage/')[1] || '';
+    const m = String(url || '').match(/\/images\/[A-Za-z0-9._-]+/);
+    const path = m ? m[0].replace(/^\//, '') : '';
     const content = rec.node.content || '';
     const next = content.replace(new RegExp(`!\\[[^\\]]*\\]\\(${escapeRegExp(url)}\\)`), ' ').replace(/\s{2,}/g, ' ').trim();
     try {
