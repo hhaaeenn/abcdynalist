@@ -137,9 +137,16 @@ class ItemController extends Controller
                 ], 500);
             }
 
-            $file = $request->file('image');
-            $path = 'images/'.Str::random(40).'.'.$file->getClientOriginalExtension();
-            $url = $blob->put($path, (string) file_get_contents($file->getRealPath()), (string) $file->getMimeType());
+            try {
+                $file = $request->file('image');
+                $path = 'images/'.Str::random(40).'.'.$file->getClientOriginalExtension();
+                $url = $blob->put($path, (string) file_get_contents($file->getRealPath()), (string) $file->getMimeType());
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Upload blob gagal: '.$e->getMessage(),
+                ], 500);
+            }
 
             return response()->json([
                 'status' => 'success',
@@ -151,7 +158,14 @@ class ItemController extends Controller
             ]);
         }
 
-        $path = $request->file('image')->store('images', $disk);
+        try {
+            $path = $request->file('image')->store('images', $disk);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menyimpan gambar: '.$e->getMessage(),
+            ], 500);
+        }
 
         if (! $path) {
             return response()->json([
@@ -204,9 +218,23 @@ class ItemController extends Controller
         }
 
         if (config('filesystems.image') === 'blob') {
-            app(BlobStorage::class)->delete($path);
+            try {
+                app(BlobStorage::class)->delete($path);
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Hapus blob gagal: '.$e->getMessage(),
+                ], 500);
+            }
         } else {
-            Storage::disk(config('filesystems.image'))->delete($path);
+            try {
+                Storage::disk(config('filesystems.image'))->delete($path);
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Hapus file gagal: '.$e->getMessage(),
+                ], 500);
+            }
         }
 
         return response()->json([
