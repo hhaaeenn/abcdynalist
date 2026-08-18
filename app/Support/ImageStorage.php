@@ -6,8 +6,6 @@ use RuntimeException;
 
 class ImageStorage
 {
-    private string $uploadUrl = 'https://telegra.ph/upload';
-
     public function enabled(): bool
     {
         return true;
@@ -15,28 +13,38 @@ class ImageStorage
 
     public function put(string $filename, string $contents): string
     {
-        $tmpFile = tempnam(sys_get_temp_dir(), 'img_');
-        file_put_contents($tmpFile, $contents);
+        $ext = pathinfo($filename, PATHINFO_EXTENSION) ?: 'png';
+        $mime = 'image/'.$ext;
 
-        $ch = curl_init($this->uploadUrl);
+        $tmpFile = tempnam(sys_get_temp_dir(), 'upload_');
+        $target = $tmpFile.'.'.$ext;
+        rename($tmpFile, $target);
+        file_put_contents($target, $contents);
+
+        $postFields = ['file' => new \CURLFile($target, $mime, $filename)];
+
+        $ch = curl_init('https://telegra.ph/upload');
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => [
-                'file' => new \CURLFile($tmpFile, mime_content_type($tmpFile), $filename),
-            ],
+            CURLOPT_POSTFIELDS => $postFields,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 30,
         ]);
         $res = curl_exec($ch);
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
         curl_close($ch);
 
-        @unlink($tmpFile);
+        @unlink($target);
+
+        if ($res === false) {
+            throw new RuntimeException('Curl error: '.$err);
+        }
 
         $json = json_decode((string) $res, true);
 
         if ($status < 200 || $status >= 300 || empty($json[0]['src'])) {
-            throw new RuntimeException('Upload gagal ('.$status.'): '.substr((string) $res, 0, 200));
+            throw new RuntimeException('Upload gagal ('.$status.'): '.((string) $res));
         }
 
         return 'https://telegra.ph'.$json[0]['src'];
