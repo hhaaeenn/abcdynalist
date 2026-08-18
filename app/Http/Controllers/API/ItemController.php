@@ -125,9 +125,9 @@ class ItemController extends Controller
             'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
         ]);
 
-        $disk = config('filesystems.image');
+        $useBlob = ! empty(getenv('BLOB_READ_WRITE_TOKEN'));
 
-        if ($disk === 'blob') {
+        if ($useBlob) {
             $blob = app(BlobStorage::class);
 
             if (! $blob->enabled()) {
@@ -217,7 +217,7 @@ class ItemController extends Controller
             ], 404);
         }
 
-        if (config('filesystems.image') === 'blob') {
+        if (! empty(getenv('BLOB_READ_WRITE_TOKEN'))) {
             try {
                 app(BlobStorage::class)->delete($path);
             } catch (\Throwable $e) {
@@ -228,7 +228,7 @@ class ItemController extends Controller
             }
         } else {
             try {
-                Storage::disk(config('filesystems.image'))->delete($path);
+                Storage::disk('public')->delete($path);
             } catch (\Throwable $e) {
                 return response()->json([
                     'status' => 'error',
