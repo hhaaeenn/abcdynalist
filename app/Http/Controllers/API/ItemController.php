@@ -109,27 +109,27 @@ class ItemController extends Controller
 
     public function uploadImage(Request $request, $documentId)
     {
-        $user = $request->user();
-
-        $document = Document::where('user_id', $user->id)->find($documentId);
-
-        if (! $document) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Document not found',
-            ], 404);
-        }
-
-        $data = $request->validate([
-            'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
-        ]);
-
-        $file = $request->file('image');
-        $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
-
-        $blob = app(BlobStorage::class);
-
         try {
+            $user = $request->user();
+
+            $document = Document::where('user_id', $user->id)->find($documentId);
+
+            if (! $document) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Document not found',
+                ], 404);
+            }
+
+            $data = $request->validate([
+                'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
+            ]);
+
+            $file = $request->file('image');
+            $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
+
+            $blob = app(BlobStorage::class);
+
             if ($blob->enabled()) {
                 $path = 'images/'.$filename;
                 $url = $blob->put($path, $file->getContent(), $file->getMimeType());
@@ -137,25 +137,23 @@ class ItemController extends Controller
                 $path = $file->storeAs('images', $filename, 'public');
                 $url = Storage::disk('public')->url($path);
             }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Image uploaded',
+                'data' => [
+                    'url' => $url,
+                    'path' => $path,
+                ],
+            ]);
         } catch (\Throwable $e) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Upload gagal: '.$e->getMessage(),
-                'debug' => [
-                    'blob_enabled' => $blob->enabled(),
-                    'php_version' => PHP_VERSION,
-                ],
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
             ], 500);
         }
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Image uploaded',
-            'data' => [
-                'url' => $url,
-                'path' => $path,
-            ],
-        ]);
     }
 
     public function deleteImage(Request $request, $documentId)
