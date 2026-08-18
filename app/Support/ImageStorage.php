@@ -25,7 +25,7 @@ class ImageStorage
     public function put(string $filename, string $contents): string
     {
         $timestamp = time();
-        $paramsToSign = "folder=&timestamp={$timestamp}";
+        $paramsToSign = "folder=dynalist&timestamp={$timestamp}";
         $signature = sha1($paramsToSign . $this->apiSecret);
 
         $ch = curl_init("https://api.cloudinary.com/v1_1/{$this->cloudName}/image/upload");
