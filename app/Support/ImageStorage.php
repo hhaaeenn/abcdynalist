@@ -6,27 +6,23 @@ use RuntimeException;
 
 class ImageStorage
 {
-    private string $apiKey;
-
-    public function __construct()
-    {
-        $this->apiKey = (string) env('IMGBB_API_KEY', '');
-    }
+    private string $uploadUrl = 'https://telegra.ph/upload';
 
     public function enabled(): bool
     {
-        return $this->apiKey !== '';
+        return true;
     }
 
     public function put(string $filename, string $contents): string
     {
-        $ch = curl_init('https://api.imgbb.com/1/upload');
+        $tmpFile = tempnam(sys_get_temp_dir(), 'img_');
+        file_put_contents($tmpFile, $contents);
+
+        $ch = curl_init($this->uploadUrl);
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => [
-                'key' => $this->apiKey,
-                'image' => base64_encode($contents),
-                'name' => pathinfo($filename, PATHINFO_FILENAME),
+                'file' => new \CURLFile($tmpFile, mime_content_type($tmpFile), $filename),
             ],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 30,
@@ -35,12 +31,14 @@ class ImageStorage
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
+        @unlink($tmpFile);
+
         $json = json_decode((string) $res, true);
 
-        if ($status < 200 || $status >= 300 || empty($json['success'])) {
+        if ($status < 200 || $status >= 300 || empty($json[0]['src'])) {
             throw new RuntimeException('Upload gagal ('.$status.'): '.substr((string) $res, 0, 200));
         }
 
-        return $json['data']['url'];
+        return 'https://telegra.ph'.$json[0]['src'];
     }
 }
