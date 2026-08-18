@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: abcdynalist
+    runtime: php
+    buildCommand: composer install --no-dev && npm install && npm run build
+    startCommand: php artisan migrate --force; php artisan serve --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: APP_KEY
+        generateValue: true
+      - key: APP_URL
+        value: https://abcdynalist.onrender.com
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_ENV
+        value: production
+      - key: DB_CONNECTION
+        value: mongodb
+      - key: SESSION_DRIVER
+        value: cookie
+      - key: CACHE_STORE
+        value: array
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: LOG_CHANNEL
+        value: stderr
