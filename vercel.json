@@ -47,6 +47,9 @@
         "CACHE_STORE": "array",
         "LOG_CHANNEL": "stderr",
         "SESSION_DRIVER": "cookie",
-        "VIEW_COMPILED_PATH": "/tmp"
+        "VIEW_COMPILED_PATH": "/tmp",
+        "CLOUDINARY_CLOUD_NAME": "wi07wh35",
+        "CLOUDINARY_API_KEY": "877227761946475",
+        "CLOUDINARY_API_SECRET": "fHAgvvVP8C7y3O_Z0cKn0uHgLsY"
     }
 }
