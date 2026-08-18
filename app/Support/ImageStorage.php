@@ -14,19 +14,20 @@ class ImageStorage
     public function put(string $filename, string $contents): string
     {
         $ext = pathinfo($filename, PATHINFO_EXTENSION) ?: 'png';
-        $mime = 'image/'.$ext;
+        $mime = 'image/' . $ext;
 
         $tmpFile = tempnam(sys_get_temp_dir(), 'upload_');
-        $target = $tmpFile.'.'.$ext;
+        $target = $tmpFile . '.' . $ext;
         rename($tmpFile, $target);
         file_put_contents($target, $contents);
 
-        $postFields = ['file' => new \CURLFile($target, $mime, $filename)];
-
-        $ch = curl_init('https://telegra.ph/upload');
+        $ch = curl_init('https://catbox.moe/user/api.php');
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $postFields,
+            CURLOPT_POSTFIELDS => [
+                'reqtype' => 'fileupload',
+                'fileToUpload' => new \CURLFile($target, $mime, $filename),
+            ],
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 30,
         ]);
@@ -38,15 +39,15 @@ class ImageStorage
         @unlink($target);
 
         if ($res === false) {
-            throw new RuntimeException('Curl error: '.$err);
+            throw new RuntimeException('Curl error: ' . $err);
         }
 
-        $json = json_decode((string) $res, true);
+        $url = trim((string) $res);
 
-        if ($status < 200 || $status >= 300 || empty($json[0]['src'])) {
-            throw new RuntimeException('Upload gagal ('.$status.'): '.((string) $res));
+        if ($status < 200 || $status >= 300 || !str_starts_with($url, 'https://')) {
+            throw new RuntimeException('Upload gagal (' . $status . '): ' . substr((string) $res, 0, 200));
         }
 
-        return 'https://telegra.ph'.$json[0]['src'];
+        return $url;
     }
 }
