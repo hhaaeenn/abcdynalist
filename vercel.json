@@ -46,7 +46,8 @@
         "CACHE_DRIVER": "array",
         "CACHE_STORE": "array",
         "LOG_CHANNEL": "stderr",
-        "SESSION_DRIVER": "database",
-        "VIEW_COMPILED_PATH": "/tmp"
+        "SESSION_DRIVER": "cookie",
+        "VIEW_COMPILED_PATH": "/tmp",
+        "IMGBB_API_KEY": "ebed754e58a3f1d24bc4c1230bf42bb6"
     }
 }

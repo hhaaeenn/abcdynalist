@@ -7,7 +7,7 @@ use App\Models\Bookmark;
 use App\Models\Document;
 use App\Models\Item;
 use App\Models\ItemRevision;
-use App\Support\BlobStorage;
+use App\Support\ImageStorage;
 use App\Support\TreeBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -117,33 +117,24 @@ class ItemController extends Controller
             return response()->json(['status' => 'error', 'message' => 'No file received'], 422);
         }
 
-        $blob = app(BlobStorage::class);
+        $storage = app(ImageStorage::class);
 
         try {
-            if ($blob->enabled()) {
-                $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
-                $path = 'images/'.$filename;
-                $url = $blob->put($path, $file->getContent(), $file->getMimeType());
-            } else {
-                $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
-                $path = $file->storeAs('images', $filename, 'public');
-                $url = Storage::disk('public')->url($path);
-            }
+            $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
+            $url = $storage->put($filename, $file->getContent());
         } catch (\Throwable $e) {
             return response()->json([
                 'status' => 'error',
-                'message' => 'Upload gagal: '.$e->getMessage(),
+                'message' => $e->getMessage(),
             ], 500);
         }
-
-        $document = Document::where('user_id', $user->id)->find($documentId);
 
         return response()->json([
             'status' => 'success',
             'message' => 'Image uploaded',
             'data' => [
                 'url' => $url,
-                'path' => $path,
+                'path' => $url,
             ],
         ]);
     }
@@ -181,17 +172,7 @@ class ItemController extends Controller
             ], 404);
         }
 
-        $blob = app(BlobStorage::class);
-
-        if ($blob->enabled()) {
-            try {
-                $blob->delete($path);
-            } catch (\Throwable $e) {
-                // skip
-            }
-        } else {
-            Storage::disk('public')->delete($path);
-        }
+        // imgbb doesn't support delete via simple API
 
         return response()->json([
             'status' => 'success',
