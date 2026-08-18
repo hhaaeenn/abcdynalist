@@ -439,7 +439,7 @@ function contentHtml(content) {
     ));
     let html = escaped
         .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,
-            '<img src="$2" alt="$1" loading="lazy" class="item-inline-img my-1 max-w-full h-auto rounded-md block">')
+            '<img src="$2" alt="$1" class="item-inline-img my-1 max-w-full h-auto rounded-md block">')
         .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,
             '<span class="internal-link" data-id="$2">$1</span>')
         .replace(/```([\s\S]*?)```/g, '<pre class="md-codeblock">$1</pre>')
@@ -857,7 +857,6 @@ function insertImageAtCaret(container, src) {
     img.src = src;
     img.alt = 'image';
     img.className = 'item-inline-img my-1 max-w-full h-auto rounded-md block';
-    img.loading = 'lazy';
     const sel = window.getSelection();
     if (sel && sel.rangeCount && container.contains(sel.anchorNode)) {
         const range = sel.getRangeAt(0);
