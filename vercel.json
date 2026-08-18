@@ -15,6 +15,10 @@
     ],
     "routes": [
         {
+            "src": "/test-env",
+            "dest": "/public/test-env.php"
+        },
+        {
             "src": "/build/assets/(.*)",
             "dest": "/public/build/assets/$1"
         },
