@@ -7,6 +7,7 @@ use App\Models\Bookmark;
 use App\Models\Document;
 use App\Models\Item;
 use App\Models\ItemRevision;
+use App\Support\BlobStorage;
 use App\Support\TreeBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -123,13 +124,24 @@ class ItemController extends Controller
             'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
         ]);
 
-        $path = $request->file('image')->store('images', 'public');
+        $file = $request->file('image');
+        $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
+
+        $blob = app(BlobStorage::class);
+
+        if ($blob->enabled()) {
+            $path = 'images/'.$filename;
+            $url = $blob->put($path, file_get_contents($file->getRealPath()), $file->getMimeType());
+        } else {
+            $path = $file->storeAs('images', $filename, 'public');
+            $url = Storage::disk('public')->url($path);
+        }
 
         return response()->json([
             'status' => 'success',
             'message' => 'Image uploaded',
             'data' => [
-                'url' => Storage::disk('public')->url($path),
+                'url' => $url,
                 'path' => $path,
             ],
         ]);
@@ -168,7 +180,17 @@ class ItemController extends Controller
             ], 404);
         }
 
-        Storage::disk('public')->delete($path);
+        $blob = app(BlobStorage::class);
+
+        if ($blob->enabled()) {
+            try {
+                $blob->delete($path);
+            } catch (\Throwable $e) {
+                // skip
+            }
+        } else {
+            Storage::disk('public')->delete($path);
+        }
 
         return response()->json([
             'status' => 'success',
