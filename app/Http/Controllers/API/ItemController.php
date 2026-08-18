@@ -132,7 +132,7 @@ class ItemController extends Controller
         try {
             if ($blob->enabled()) {
                 $path = 'images/'.$filename;
-                $url = $blob->put($path, file_get_contents($file->getRealPath()), $file->getMimeType());
+                $url = $blob->put($path, $file->getContent(), $file->getMimeType());
             } else {
                 $path = $file->storeAs('images', $filename, 'public');
                 $url = Storage::disk('public')->url($path);
@@ -141,6 +141,10 @@ class ItemController extends Controller
             return response()->json([
                 'status' => 'error',
                 'message' => 'Upload gagal: '.$e->getMessage(),
+                'debug' => [
+                    'blob_enabled' => $blob->enabled(),
+                    'php_version' => PHP_VERSION,
+                ],
             ], 500);
         }
 
