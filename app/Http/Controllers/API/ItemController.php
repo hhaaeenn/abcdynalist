@@ -129,12 +129,19 @@ class ItemController extends Controller
 
         $blob = app(BlobStorage::class);
 
-        if ($blob->enabled()) {
-            $path = 'images/'.$filename;
-            $url = $blob->put($path, file_get_contents($file->getRealPath()), $file->getMimeType());
-        } else {
-            $path = $file->storeAs('images', $filename, 'public');
-            $url = Storage::disk('public')->url($path);
+        try {
+            if ($blob->enabled()) {
+                $path = 'images/'.$filename;
+                $url = $blob->put($path, file_get_contents($file->getRealPath()), $file->getMimeType());
+            } else {
+                $path = $file->storeAs('images', $filename, 'public');
+                $url = Storage::disk('public')->url($path);
+            }
+        } catch (\Throwable $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Upload gagal: '.$e->getMessage(),
+            ], 500);
         }
 
         return response()->json([
