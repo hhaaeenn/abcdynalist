@@ -125,18 +125,9 @@ class ItemController extends Controller
             'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
         ]);
 
-        $useBlob = ! empty(getenv('BLOB_READ_WRITE_TOKEN'));
+        $blob = app(BlobStorage::class);
 
-        if ($useBlob) {
-            $blob = app(BlobStorage::class);
-
-            if (! $blob->enabled()) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'BLOB_READ_WRITE_TOKEN belum di-set',
-                ], 500);
-            }
-
+        if ($blob->enabled()) {
             try {
                 $file = $request->file('image');
                 $path = 'images/'.Str::random(40).'.'.$file->getClientOriginalExtension();
@@ -159,7 +150,7 @@ class ItemController extends Controller
         }
 
         try {
-            $path = $request->file('image')->store('images', $disk);
+            $path = $request->file('image')->store('images', 'public');
         } catch (\Throwable $e) {
             return response()->json([
                 'status' => 'error',
@@ -178,7 +169,7 @@ class ItemController extends Controller
             'status' => 'success',
             'message' => 'Image uploaded',
             'data' => [
-                'url' => Storage::disk($disk)->url($path),
+                'url' => Storage::disk('public')->url($path),
                 'path' => $path,
             ],
         ]);
@@ -217,7 +208,9 @@ class ItemController extends Controller
             ], 404);
         }
 
-        if (! empty(getenv('BLOB_READ_WRITE_TOKEN'))) {
+        $blob = app(BlobStorage::class);
+
+        if ($blob->enabled()) {
             try {
                 app(BlobStorage::class)->delete($path);
             } catch (\Throwable $e) {
