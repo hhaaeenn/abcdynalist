@@ -11,6 +11,7 @@ use App\Support\BlobStorage;
 use App\Support\TreeBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use MongoDB\BSON\ObjectId;
 use MongoDB\BSON\Regex;
 
@@ -109,51 +110,42 @@ class ItemController extends Controller
 
     public function uploadImage(Request $request, $documentId)
     {
+        $user = $request->user();
+        $file = $request->file('image');
+
+        if (! $file) {
+            return response()->json(['status' => 'error', 'message' => 'No file received'], 422);
+        }
+
+        $blob = app(BlobStorage::class);
+
         try {
-            $user = $request->user();
-
-            $document = Document::where('user_id', $user->id)->find($documentId);
-
-            if (! $document) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Document not found',
-                ], 404);
-            }
-
-            $data = $request->validate([
-                'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
-            ]);
-
-            $file = $request->file('image');
-            $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
-
-            $blob = app(BlobStorage::class);
-
             if ($blob->enabled()) {
+                $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
                 $path = 'images/'.$filename;
                 $url = $blob->put($path, $file->getContent(), $file->getMimeType());
             } else {
+                $filename = Str::random(20).'.'.$file->getClientOriginalExtension();
                 $path = $file->storeAs('images', $filename, 'public');
                 $url = Storage::disk('public')->url($path);
             }
-
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Image uploaded',
-                'data' => [
-                    'url' => $url,
-                    'path' => $path,
-                ],
-            ]);
         } catch (\Throwable $e) {
             return response()->json([
                 'status' => 'error',
-                'message' => $e->getMessage(),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
+                'message' => 'Upload gagal: '.$e->getMessage(),
             ], 500);
         }
+
+        $document = Document::where('user_id', $user->id)->find($documentId);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Image uploaded',
+            'data' => [
+                'url' => $url,
+                'path' => $path,
+            ],
+        ]);
     }
 
     public function deleteImage(Request $request, $documentId)
