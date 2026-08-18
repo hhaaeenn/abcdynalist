@@ -125,9 +125,18 @@ class ItemController extends Controller
             'image' => ['required', 'file', 'mimes:jpeg,png,gif,webp', 'max:5120'],
         ]);
 
-        $blob = app(BlobStorage::class);
+        $disk = config('filesystems.image');
 
-        if ($blob->enabled()) {
+        if ($disk === 'blob') {
+            $blob = app(BlobStorage::class);
+
+            if (! $blob->enabled()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'BLOB_READ_WRITE_TOKEN belum di-set',
+                ], 500);
+            }
+
             try {
                 $file = $request->file('image');
                 $path = 'images/'.Str::random(40).'.'.$file->getClientOriginalExtension();
@@ -150,7 +159,7 @@ class ItemController extends Controller
         }
 
         try {
-            $path = $request->file('image')->store('images', 'public');
+            $path = $request->file('image')->store('images', $disk);
         } catch (\Throwable $e) {
             return response()->json([
                 'status' => 'error',
@@ -169,7 +178,7 @@ class ItemController extends Controller
             'status' => 'success',
             'message' => 'Image uploaded',
             'data' => [
-                'url' => Storage::disk('public')->url($path),
+                'url' => Storage::disk($disk)->url($path),
                 'path' => $path,
             ],
         ]);
@@ -208,9 +217,7 @@ class ItemController extends Controller
             ], 404);
         }
 
-        $blob = app(BlobStorage::class);
-
-        if ($blob->enabled()) {
+        if (config('filesystems.image') === 'blob') {
             try {
                 app(BlobStorage::class)->delete($path);
             } catch (\Throwable $e) {
@@ -221,7 +228,7 @@ class ItemController extends Controller
             }
         } else {
             try {
-                Storage::disk('public')->delete($path);
+                Storage::disk(config('filesystems.image'))->delete($path);
             } catch (\Throwable $e) {
                 return response()->json([
                     'status' => 'error',

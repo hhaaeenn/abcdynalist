@@ -15,10 +15,6 @@
     ],
     "routes": [
         {
-            "src": "/test-env",
-            "dest": "/public/test-env.php"
-        },
-        {
             "src": "/build/assets/(.*)",
             "dest": "/public/build/assets/$1"
         },
@@ -51,6 +47,7 @@
         "CACHE_STORE": "array",
         "LOG_CHANNEL": "stderr",
         "SESSION_DRIVER": "database",
-        "VIEW_COMPILED_PATH": "/tmp"
+        "VIEW_COMPILED_PATH": "/tmp",
+        "BLOB_READ_WRITE_TOKEN": "vercel_blob_rw_S4X2pF7QWvC5ospk_yX3hSfQ7CdBvvUdEHlc1q48NbgJxa5"
     }
 }

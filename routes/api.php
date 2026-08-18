@@ -13,20 +13,6 @@ use App\Http\Controllers\API\TagColorController;
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 
-Route::get('/debug-env', function () {
-    $token = $_SERVER['BLOB_READ_WRITE_TOKEN'] ?? $_ENV['BLOB_READ_WRITE_TOKEN'] ?? getenv('BLOB_READ_WRITE_TOKEN') ?: '';
-    $hasServerKey = isset($_SERVER['BLOB_READ_WRITE_TOKEN']);
-    $hasEnvKey = isset($_ENV['BLOB_READ_WRITE_TOKEN']);
-    $getenvResult = getenv('BLOB_READ_WRITE_TOKEN');
-    return response()->json([
-        'has_server_key' => $hasServerKey,
-        'has_env_key' => $hasEnvKey,
-        'getenv_type' => gettype($getenvResult),
-        'token_prefix' => $token !== '' ? substr($token, 0, 20).'...' : 'EMPTY',
-        'blob_enabled' => app(\App\Support\BlobStorage::class)->enabled(),
-    ]);
-});
-
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);

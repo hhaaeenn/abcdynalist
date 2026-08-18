@@ -16,15 +16,10 @@ class BlobStorage
 
     private string $storeId;
 
-    private static function env(string $key, string $default = ''): string
-    {
-        return $_SERVER[$key] ?? $_ENV[$key] ?? getenv($key) ?: $default;
-    }
-
     public function __construct()
     {
-        $this->token = (string) static::env('BLOB_READ_WRITE_TOKEN');
-        $this->storeId = (string) static::env('BLOB_STORE_ID');
+        $this->token = (string) env('BLOB_READ_WRITE_TOKEN', '');
+        $this->storeId = (string) env('BLOB_STORE_ID', '');
 
         if ($this->storeId === '' && $this->token !== '') {
             $parts = explode('_', $this->token);
