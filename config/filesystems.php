@@ -25,7 +25,7 @@ return [
     |
     */
 
-    'image' => env('FILESYSTEM_IMAGE_DISK', 'public'),
+    'image' => env('BLOB_READ_WRITE_TOKEN') ? 'blob' : 'public',
 
     /*
     |--------------------------------------------------------------------------
