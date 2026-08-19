@@ -205,7 +205,7 @@ body[data-theme='dark'] #doc-toolbar {
 }
 
 body[data-theme='dark'] #doc-title {
-    color: #e8e5df;
+    color: #e8e5df !important;
 }
 
 /* dark item-row hover → in polish section */
@@ -1443,4 +1443,216 @@ body.no-highlight .item-row.selected,
 body.no-highlight .item-row.multi-selected {
     background: transparent;
     box-shadow: none;
+}
+
+/* ══════════════════════════════════════════
+   DARK MODE: override inline Tailwind colors
+   ══════════════════════════════════════════ */
+
+/* ── Body / Main ── */
+body[data-theme='dark'] {
+    background: #1c1b19;
+    color: #e6e3dc;
+}
+body[data-theme='dark'] #main {
+    background: #1c1b19;
+}
+
+/* ── Rail (icon sidebar kiri) ── */
+body[data-theme='dark'] #rail {
+    background: #171614;
+    border-color: rgb(255 255 255 / 0.06);
+}
+body[data-theme='dark'] #rail button {
+    color: #8a857e;
+}
+body[data-theme='dark'] #rail button:hover {
+    color: #e6e3dc;
+    background: rgb(255 255 255 / 0.08);
+}
+
+/* ── File pane (sidebar) ── */
+body[data-theme='dark'] #file-pane {
+    background: #201f1c;
+    border-color: rgb(255 255 255 / 0.08);
+}
+body[data-theme='dark'] #file-pane .pane-heading {
+    color: #6b675f;
+}
+body[data-theme='dark'] #file-pane #add-btn {
+    background: #292723;
+    border-color: rgb(255 255 255 / 0.1);
+    color: #d6d2cb;
+}
+body[data-theme='dark'] #file-pane #add-btn svg.text-\\[\\#c07a12\\] {
+    color: #c07a12;
+}
+
+/* ── Toolbar dokumen ── */
+body[data-theme='dark'] #doc-toolbar {
+    background: #201f1c;
+    border-color: rgb(255 255 255 / 0.06);
+}
+body[data-theme='dark'] .tool-btn {
+    color: #8a857e;
+}
+body[data-theme='dark'] .tool-btn:hover {
+    background: rgb(255 255 255 / 0.08);
+    color: #e6e3dc;
+}
+
+/* ── Doc title input ── */
+body[data-theme='dark'] #doc-title {
+    color: #e8e5df !important;
+    caret-color: #e8e5df;
+}
+body[data-theme='dark'] #doc-title::placeholder {
+    color: #5a5650 !important;
+}
+
+/* ── Doc meta / breadcrumb ── */
+body[data-theme='dark'] #doc-meta { color: #6b675f; }
+body[data-theme='dark'] #doc-breadcrumb { color: #6b675f; }
+
+/* ── Status bar ── */
+body[data-theme='dark'] #status-bar {
+    background: #1a1917;
+    border-color: rgb(255 255 255 / 0.06);
+    color: #6b675f;
+}
+
+/* ── Item text (override inline style) ── */
+body[data-theme='dark'] .item-text {
+    color: #e6e3dc !important;
+}
+body[data-theme='dark'] .item-text[style] {
+    color: inherit;
+}
+body[data-theme='dark'] .item-text.heading-1,
+body[data-theme='dark'] .item-text.heading-2,
+body[data-theme='dark'] .item-text.heading-3 {
+    color: #e8e5df !important;
+}
+
+/* ── Add menu ── */
+body[data-theme='dark'] #add-menu {
+    background: #292723;
+    border-color: rgb(255 255 255 / 0.1);
+}
+body[data-theme='dark'] #add-menu button {
+    color: #d6d2cb;
+}
+body[data-theme='dark'] #add-menu button:hover {
+    background: rgb(255 255 255 / 0.08);
+}
+body[data-theme='dark'] #add-menu button svg {
+    color: #8a857e;
+}
+
+/* ── Context / item menus ── */
+body[data-theme='dark'] #ctx-menu {
+    background: #292723;
+    border-color: rgb(255 255 255 / 0.1);
+}
+body[data-theme='dark'] .item-menu {
+    background: #292723;
+    border-color: rgb(255 255 255 / 0.1);
+}
+
+/* ── Modals ── */
+body[data-theme='dark'] #help-modal .relative,
+body[data-theme='dark'] #settings-modal .relative,
+body[data-theme='dark'] #sr-modal .relative,
+body[data-theme='dark'] #quick-finder > div:first-child + div {
+    background: #262420;
+    border-color: rgb(255 255 255 / 0.1);
+    color: #d6d2cb;
+}
+body[data-theme='dark'] #help-modal h3,
+body[data-theme='dark'] #settings-modal h3,
+body[data-theme='dark'] #sr-modal h3 {
+    color: #e6e3dc;
+}
+body[data-theme='dark'] #help-modal span,
+body[data-theme='dark'] #settings-modal span,
+body[data-theme='dark'] #settings-modal label,
+body[data-theme='dark'] #sr-modal label {
+    color: #d6d2cb;
+}
+body[data-theme='dark'] .help-head {
+    color: #c07a12;
+}
+body[data-theme='dark'] .settings-label {
+    color: #c07a12;
+}
+body[data-theme='dark'] .pref-btn {
+    background: #33312c;
+    color: #d6d2cb;
+    border-color: rgb(255 255 255 / 0.1);
+}
+body[data-theme='dark'] .pref-btn:hover {
+    background: #3a3833;
+}
+
+/* ── Inputs in modals ── */
+body[data-theme='dark'] #sr-find,
+body[data-theme='dark'] #sr-replace {
+    background: #1c1b19;
+    border-color: rgb(255 255 255 / 0.12);
+    color: #d6d2cb;
+}
+body[data-theme='dark'] #sr-find::placeholder,
+body[data-theme='dark'] #sr-replace::placeholder {
+    color: #5a5650;
+}
+
+/* ── View options / Reminder popups ── */
+body[data-theme='dark'] #view-options,
+body[data-theme='dark'] #reminder-pop {
+    background: #262420;
+    border-color: rgb(255 255 255 / 0.1);
+    color: #d6d2cb;
+}
+
+/* ── Empty state ── */
+body[data-theme='dark'] #main-empty h2 { color: #e6e3dc; }
+body[data-theme='dark'] #main-empty p { color: #6b675f; }
+body[data-theme='dark'] #main-empty .font-medium { color: #e6e3dc; }
+
+/* ── Tag results / Trash ── */
+body[data-theme='dark'] #tag-results h2 { color: #e6e3dc; }
+body[data-theme='dark'] #trash-view h2 { color: #e6e3dc; }
+body[data-theme='dark'] #trash-view p { color: #6b675f; }
+
+/* ── Side panels ── */
+body[data-theme='dark'] #backlinks-panel,
+body[data-theme='dark'] #bookmarks-panel,
+body[data-theme='dark'] #trash-panel {
+    background: #201f1c;
+    border-color: rgb(255 255 255 / 0.08);
+}
+body[data-theme='dark'] #backlinks-panel h2,
+body[data-theme='dark'] #bookmarks-panel h2,
+body[data-theme='dark'] #trash-panel h2 {
+    color: #6b675f;
+}
+body[data-theme='dark'] #backlinks-panel p {
+    color: #6b675f;
+}
+
+/* ── Doc container ── */
+body[data-theme='dark'] #doc-container {
+    color: #e6e3dc;
+}
+
+/* ── Inline images fallback ── */
+body[data-theme='dark'] img.item-inline-img {
+    background: #292723;
+}
+
+/* ── Kbd ── */
+body[data-theme='dark'] kbd.kbd {
+    background: #33312c;
+    color: #c9c4bc;
+    border-color: rgb(255 255 255 / 0.15);
 }
