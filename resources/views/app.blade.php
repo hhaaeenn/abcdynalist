@@ -291,7 +291,7 @@
                 <div id="doc-breadcrumb" class="hidden flex items-center gap-1.5 text-[12.5px] text-[#8a857e] mb-1"></div>
                 <div class="group flex items-center gap-1">
                     <input id="doc-title"
-                        class="flex-1 min-w-0 text-3xl font-semibold text-[#24221f] bg-transparent border-none focus:outline-none placeholder:text-[#c5c0b9]"
+                        class="flex-1 min-w-0 text-3xl font-semibold bg-transparent border-none focus:outline-none placeholder:text-[#c5c0b9]"
                         placeholder="Tanpa judul">
                     <button id="doc-menu-btn" title="Menu dokumen"
                         class="opacity-0 group-hover:opacity-100 shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-[#8a857e] hover:bg-black/5 hover:text-[#24221f] transition"
