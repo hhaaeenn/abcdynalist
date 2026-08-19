@@ -50,7 +50,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/documents/{id}/publish', [DocumentController::class, 'showPublish']);
     Route::post('/documents/{id}/publish', [DocumentController::class, 'updatePublish']);
     Route::get('/documents/{id}/export', [DocumentController::class, 'export']);
-    Route::post('/documents/import', [DocumentController::class, 'importDocument']);
 
     Route::get('/documents/{documentId}/items', [ItemController::class, 'index']);
     Route::post('/documents/{documentId}/items', [ItemController::class, 'store']);

@@ -152,11 +152,15 @@ class DocumentController extends Controller
         $ids = $this->collectDescendantIds($document);
         $ids[] = (string) $document->id;
 
-        Item::whereIn('document_id', $ids)->delete();
+        Item::whereIn('document_id', $ids)->each(function ($item) {
+            $item->delete();
+        });
 
         Bookmark::where('target_type', 'document')->whereIn('target_id', $ids)->delete();
 
-        Document::whereIn('id', $ids)->delete();
+        Document::whereIn('id', $ids)->each(function ($doc) {
+            $doc->delete();
+        });
 
         return response()->json([
             'status' => 'success',
