@@ -3600,6 +3600,31 @@ function captureSnapshot() {
     return items;
 }
 
+function flatToTree(items) {
+    const map = new Map();
+    const roots = [];
+    items.forEach((it) => {
+        map.set(it.id, { ...it, children: [] });
+    });
+    items.forEach((it) => {
+        const node = map.get(it.id);
+        if (it.parent_id && map.has(it.parent_id)) {
+            map.get(it.parent_id).children.push(node);
+        } else {
+            roots.push(node);
+        }
+    });
+    return roots;
+}
+
+function applySnapshotLocal(snap) {
+    tree = flatToTree(snap);
+    buildFlat();
+    render();
+    renderTags();
+    updateWordCount();
+}
+
 function recordUndo() {
     if (!docId) return;
     const snap = captureSnapshot();
@@ -3613,11 +3638,11 @@ function recordUndo() {
 }
 
 async function restoreSnapshot(snap) {
+    applySnapshotLocal(snap);
     try {
         await api.post(`/documents/${docId}/items-restore`, { items: snap });
-        await loadItems();
-        updateUndoButtons();
     } catch (e) {
+        await loadItems();
         showFailedAlert(e.message);
     }
 }
