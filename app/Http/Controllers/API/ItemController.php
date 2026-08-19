@@ -117,6 +117,15 @@ class ItemController extends Controller
             return response()->json(['status' => 'error', 'message' => 'No file received'], 422);
         }
 
+        $document = Document::where('user_id', $user->id)->find($documentId);
+
+        if (! $document) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Document not found',
+            ], 404);
+        }
+
         $storage = app(ImageStorage::class);
 
         try {
@@ -153,7 +162,7 @@ class ItemController extends Controller
         }
 
         $data = $request->validate([
-            'path' => ['required', 'string', 'max:500', 'regex:/^images\/[A-Za-z0-9._-]+$/'],
+            'path' => ['required', 'string', 'max:500'],
         ]);
 
         $path = $data['path'];
@@ -1036,8 +1045,9 @@ class ItemController extends Controller
         $items = $query->get();
 
         if (array_key_exists('replace_with', $data)) {
+            $replaceFn = ! empty($data['case_sensitive']) ? 'str_replace' : 'str_ireplace';
             foreach ($items as $item) {
-                $item->content = str_ireplace($data['q'], $data['replace_with'] ?? '', $item->content);
+                $item->content = $replaceFn($data['q'], $data['replace_with'] ?? '', $item->content);
                 $item->save();
             }
         }

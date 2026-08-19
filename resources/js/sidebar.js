@@ -513,7 +513,7 @@ async function createItemTree(documentId, roots) {
                 note: node.note || '',
                 checked: node.checked,
             });
-            return { node, id: res.data.data.id };
+            return { node, id: res.data.id };
         }));
         count += created.length;
         created.forEach(({ node, id }) => {
@@ -553,7 +553,7 @@ async function importOpml(file) {
     let documentId;
     try {
         const res = await api.post('/documents', { type: 'document', name: docName });
-        documentId = res.data.data.id;
+        documentId = res.data.id;
         const count = await createItemTree(documentId, roots);
         toast(`Impor OPML selesai: ${count} item.`);
     } catch (e) {

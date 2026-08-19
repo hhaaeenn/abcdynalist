@@ -3590,6 +3590,7 @@ function captureSnapshot() {
                 heading: n.heading || 0,
                 color: n.color || null,
                 bullet: n.bullet || 'bullet',
+                tags: n.tags || [],
             });
             if (Array.isArray(n.children) && n.children.length) walk(n.children, n.id);
         }

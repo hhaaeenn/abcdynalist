@@ -771,18 +771,17 @@ class DocumentController extends Controller
             ->get()
             ->values();
 
-        $all = $siblings->toArray();
-        $targetIndex = min($position, count($all));
+        $targetIndex = min($position, $siblings->count());
 
         $ordered = [];
-        foreach ($all as $i => $sibling) {
+        foreach ($siblings as $i => $sibling) {
             if ($i === $targetIndex) {
                 $ordered[] = $document;
             }
             $ordered[] = $sibling;
         }
 
-        if ($targetIndex >= count($all)) {
+        if ($targetIndex >= $siblings->count()) {
             $ordered[] = $document;
         }
 
