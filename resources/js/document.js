@@ -802,6 +802,11 @@ function buildRow(node, depth) {
                 URL.revokeObjectURL(blobUrl);
                 const imgs = text.querySelectorAll(`img[src="${blobUrl}"]`);
                 imgs.forEach((img) => { img.src = permanentUrl; });
+                const fresh = contentFromElement(text);
+                if (fresh !== (node.content || '')) {
+                    node.content = fresh;
+                    api.patch(`/documents/${docId}/items/${node.id}`, { content: fresh }).catch(() => {});
+                }
             }
             return;
         }
@@ -4767,18 +4772,29 @@ function wireOutline() {
             e.preventDefault();
             const file = imgItem.getAsFile();
             if (!file) return;
-            const url = await uploadImage(file);
-            if (!url) return;
             const parentId = selectedId || null;
+            const blobUrl = URL.createObjectURL(file);
             recordUndo();
-            try {
-                const data = await api.post(`/documents/${docId}/items`, { parent_id: parentId, content: `![](${url})` });
-                await loadItems();
-                selectItem(data.data.id);
-                startEdit(data.data.id);
-                placeCaretAfterImage(data.data.id);
-            } catch (err) {
-                showFailedAlert(err.message);
+            const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            const node = { id: tempId, parent_id: parentId, content: `![](${blobUrl})`, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: 0, children: [] };
+            const pos = parentId ? childCount(parentId) : flat.filter((f) => !f.node.parent_id).length;
+            insertNodeLocally(parentId, pos, node);
+            buildFlat(); applyZoomFilter(); render();
+            const promise = api.post(`/documents/${docId}/items`, { parent_id: parentId, content: node.content, bullet: node.bullet }).then((d) => d.data.id);
+            registerPendingItem(tempId, promise);
+            promise.then((realId) => {
+                node.id = realId;
+                const rec = rows.get(tempId);
+                if (rec) { rows.delete(tempId); rows.set(realId, rec); rec.node = node; if (rec.row) rec.row.dataset.id = realId; }
+                if (selectedId === tempId) selectedId = realId;
+                unregisterPendingItem(tempId);
+            }).catch(() => { removeNodeLocally(tempId); unregisterPendingItem(tempId); });
+            const permanentUrl = await uploadImage(file);
+            if (permanentUrl) {
+                URL.revokeObjectURL(blobUrl);
+                node.content = `![](${permanentUrl})`;
+                const realId = await promise.catch(() => null);
+                if (realId) api.patch(`/documents/${docId}/items/${realId}`, { content: node.content }).catch(() => {});
             }
             return;
         }
