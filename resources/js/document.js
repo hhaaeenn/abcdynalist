@@ -4794,9 +4794,12 @@ function wireOutline() {
             if (permanentUrl) {
                 URL.revokeObjectURL(blobUrl);
                 node.content = `![](${permanentUrl})`;
-                buildFlat(); applyZoomFilter(); render();
                 const realId = await promise.catch(() => null);
-                if (realId) api.patch(`/documents/${docId}/items/${realId}`, { content: node.content }).catch(() => {});
+                if (realId) {
+                    const rec = rows.get(realId);
+                    if (rec) { rec.node = node; if (rec.text) { rec.text.innerHTML = contentHtml(node.content); wireInlineImages(rec.text, realId); } }
+                }
+                api.patch(`/documents/${docId}/items/${realId || tempId}`, { content: node.content }).catch(() => {});
             }
             return;
         }
