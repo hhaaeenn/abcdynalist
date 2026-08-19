@@ -3629,7 +3629,14 @@ function recordUndo() {
     if (!docId) return;
     const snap = captureSnapshot();
     const last = undoStack[undoStack.length - 1];
-    if (last && JSON.stringify(last) === JSON.stringify(snap)) return;
+    if (last && last.length === snap.length) {
+        let same = true;
+        for (let i = 0; i < last.length; i++) {
+            const a = last[i], b = snap[i];
+            if (a.id !== b.id || a.content !== b.content || a.parent_id !== b.parent_id || a.checked !== b.checked || a.heading !== b.heading || a.note !== b.note) { same = false; break; }
+        }
+        if (same) return;
+    }
     undoStack.push(snap);
     if (undoStack.length > 100) undoStack.shift();
     redoStack.length = 0;
@@ -3639,26 +3646,24 @@ function recordUndo() {
 
 async function restoreSnapshot(snap) {
     applySnapshotLocal(snap);
-    try {
-        await api.post(`/documents/${docId}/items-restore`, { items: snap });
-    } catch (e) {
+    api.post(`/documents/${docId}/items-restore`, { items: snap }).catch(async (e) => {
         await loadItems();
         showFailedAlert(e.message);
-    }
+    });
 }
 
-async function undo() {
+function undo() {
     if (!docId || !undoStack.length) return;
     const snap = undoStack.pop();
     redoStack.push(captureSnapshot());
-    await restoreSnapshot(snap);
+    restoreSnapshot(snap);
 }
 
-async function redo() {
+function redo() {
     if (!docId || !redoStack.length) return;
     const snap = redoStack.pop();
     undoStack.push(captureSnapshot());
-    await restoreSnapshot(snap);
+    restoreSnapshot(snap);
 }
 
 function updateUndoButtons() {
