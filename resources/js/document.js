@@ -4804,7 +4804,8 @@ function wireOutline() {
             e.preventDefault();
             const file = imgItem.getAsFile();
             if (!file) return;
-            const parentId = selectedId || null;
+            let parentId = selectedId || null;
+            if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
             const blobUrl = URL.createObjectURL(file);
             recordUndo();
             const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -4841,7 +4842,8 @@ function wireOutline() {
         while (lines.length && lines[lines.length - 1] === '') lines.pop();
         if (!lines.length) return;
         const selRec = selectedId ? rows.get(selectedId) : null;
-        const parentId = selRec ? (selRec.node.parent_id || null) : null;
+        let parentId = selRec ? (selRec.node.parent_id || null) : null;
+        if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
         const basePos = selRec ? siblingPosition(selRec.node) + 1 : 0;
         recordUndo();
         try {
