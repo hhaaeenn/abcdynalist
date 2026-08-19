@@ -795,9 +795,14 @@ function buildRow(node, depth) {
             e.preventDefault();
             const file = imgItem.getAsFile();
             if (!file) return;
-            const url = await uploadImage(file);
-            if (!url) return;
-            insertImageAtCaret(text, url);
+            const blobUrl = URL.createObjectURL(file);
+            insertImageAtCaret(text, blobUrl);
+            const permanentUrl = await uploadImage(file);
+            if (permanentUrl && permanentUrl !== blobUrl) {
+                URL.revokeObjectURL(blobUrl);
+                const imgs = text.querySelectorAll(`img[src="${blobUrl}"]`);
+                imgs.forEach((img) => { img.src = permanentUrl; });
+            }
             return;
         }
         e.preventDefault();
@@ -2729,17 +2734,15 @@ async function commitEdit(id) {
     const previous = rec.node.content || '';
     recordUndo();
     rec.node.content = value;
-    try {
-        await api.patch(`/documents/${docId}/items/${id}`, { content: value });
-        rec.text.innerHTML = contentHtml(value);
-        wireInlineImages(rec.text, id);
-        return true;
-    } catch (e) {
+    rec.text.innerHTML = contentHtml(value);
+    wireInlineImages(rec.text, id);
+    api.patch(`/documents/${docId}/items/${id}`, { content: value }).catch((e) => {
         rec.node.content = previous;
         rec.text.innerHTML = contentHtml(previous);
+        wireInlineImages(rec.text, id);
         showFailedAlert(e.message);
-        return false;
-    }
+    });
+    return true;
 }
 
 function cancelEdit(id) {
@@ -3143,14 +3146,12 @@ async function toggleCheck(id) {
     recordUndo();
     const next = !rec.node.checked;
     rec.node.checked = next;
-    try {
-        await api.patch(`/documents/${docId}/items/${id}`, { checked: next });
-        render();
-    } catch (e) {
+    render();
+    api.patch(`/documents/${docId}/items/${id}`, { checked: next }).catch((e) => {
         rec.node.checked = !next;
         render();
         showFailedAlert(e.message);
-    }
+    });
 }
 
 async function indent(id) {
