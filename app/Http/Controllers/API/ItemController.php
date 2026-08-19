@@ -367,10 +367,15 @@ class ItemController extends Controller
             }
         }
 
+        $oldParentId = $item->parent_id;
+
         $item->parent_id = $parentId ?: null;
         $item->save();
 
         $this->reorderSiblings($documentId, $parentId ?: null);
+        if ($oldParentId && (string) $oldParentId !== (string) ($parentId ?: null)) {
+            $this->reorderSiblings($documentId, $oldParentId);
+        }
 
         if (isset($data['position'])) {
             $this->applyPosition($documentId, $item, $parentId ?: null, $data['position']);
@@ -513,7 +518,7 @@ class ItemController extends Controller
             ]);
         }
 
-        $parent = Item::find($item->parent_id);
+        $parent = Item::where('document_id', $documentId)->find($item->parent_id);
         $oldParentId = $item->parent_id;
         $newParentId = $parent ? $parent->parent_id : null;
 

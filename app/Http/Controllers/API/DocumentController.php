@@ -552,10 +552,15 @@ class DocumentController extends Controller
             }
         }
 
+        $oldParentId = $document->parent_id;
+
         $document->parent_id = $parentId ?: null;
         $document->save();
 
         $this->reorderSiblings($user->id, $parentId);
+        if ($oldParentId && (string) $oldParentId !== (string) ($parentId ?: null)) {
+            $this->reorderSiblings($user->id, $oldParentId);
+        }
 
         if (isset($data['position'])) {
             $this->applyPosition($user->id, $document, $parentId, $data['position']);

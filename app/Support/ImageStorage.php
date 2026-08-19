@@ -12,9 +12,9 @@ class ImageStorage
 
     public function __construct()
     {
-        $this->cloudName = (string) env('CLOUDINARY_CLOUD_NAME', '');
-        $this->apiKey = (string) env('CLOUDINARY_API_KEY', '');
-        $this->apiSecret = (string) env('CLOUDINARY_API_SECRET', '');
+        $this->cloudName = (string) config('services.cloudinary.cloud_name', env('CLOUDINARY_CLOUD_NAME', ''));
+        $this->apiKey = (string) config('services.cloudinary.api_key', env('CLOUDINARY_API_KEY', ''));
+        $this->apiSecret = (string) config('services.cloudinary.api_secret', env('CLOUDINARY_API_SECRET', ''));
     }
 
     public function enabled(): bool
@@ -24,6 +24,9 @@ class ImageStorage
 
     public function put(string $filename, string $contents): string
     {
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mimeType = $finfo->buffer($contents) ?: 'image/png';
+
         $timestamp = time();
         $paramsToSign = "folder=dynalist&timestamp={$timestamp}";
         $signature = sha1($paramsToSign . $this->apiSecret);
@@ -32,7 +35,7 @@ class ImageStorage
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => [
-                'file' => 'data:image/png;base64,' . base64_encode($contents),
+                'file' => "data:{$mimeType};base64," . base64_encode($contents),
                 'api_key' => $this->apiKey,
                 'timestamp' => $timestamp,
                 'signature' => $signature,

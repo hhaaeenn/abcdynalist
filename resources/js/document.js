@@ -1165,22 +1165,23 @@ async function bulkDelete() {
     const ids = [...multi];
     if (!ids.length) return;
     recordUndo();
+    ids.forEach((id) => {
+        removeNodeLocally(id);
+        collapsed.delete(id);
+        multi.delete(id);
+    });
+    selAnchor = null;
+    selEdge = null;
+    if (selectedId && ids.includes(selectedId)) selectedId = null;
+    buildFlat();
+    applyZoomFilter();
+    render();
     try {
         await Promise.all(ids.map((id) => api.delete(`/documents/${docId}/items/${id}`)));
-        ids.forEach((id) => {
-            removeNodeLocally(id);
-            collapsed.delete(id);
-            multi.delete(id);
-        });
-        selAnchor = null;
-        selEdge = null;
-        if (selectedId && ids.includes(selectedId)) selectedId = null;
-        buildFlat();
-        applyZoomFilter();
-        render();
         toast(`${ids.length} item dihapus. Pulihkan dari Trash.`);
     } catch (e) {
-        showFailedAlert(e.message);
+        showFailedAlert('Beberapa item gagal dihapus: ' + e.message);
+        loadItems();
     }
 }
 
@@ -1995,8 +1996,8 @@ async function pasteSnapshots(snapshots, id, mode) {
         pos = (rows.get(id)?.node.children || []).length;
     } else {
         const rec = rows.get(id);
-        parentId = rec.node.parent_id || null;
-        pos = siblingPosition(rec.node) + 1;
+        if (!rec) { parentId = null; pos = 0; }
+        else { parentId = rec.node.parent_id || null; pos = siblingPosition(rec.node) + 1; }
     }
     let firstId = null;
     let lastId = null;

@@ -69,10 +69,10 @@ function buildRow(node, depth) {
     const addBtn = document.createElement('button');
     addBtn.className = 'row-add opacity-0 group-hover:opacity-100 shrink-0 w-4 h-4 flex items-center justify-center rounded text-[#b5b0a9] hover:text-[#c07a12] transition';
     addBtn.innerHTML = ICONS.plus;
-    addBtn.title = 'Tambah dokumen di folder ini';
+    addBtn.title = 'Tambah item di folder ini';
     addBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        startCreate('document', node.id);
+        showAddMenu(e.clientX, e.clientY, node.id);
     });
 
     row.append(spacer, chevron, icon(isFolder ? 'folder' : 'document', isFolder ? 'text-[#c07a12]' : 'text-[#8a857e]'));
@@ -261,6 +261,44 @@ export function selectDocument(node) {
     });
     const row = document.querySelector(`.tree-row[data-id="${node.id}"]`);
     if (row) row.focus({ preventScroll: true });
+}
+
+let rowAddMenu = null;
+
+function showAddMenu(x, y, parentId) {
+    hideRowAddMenu();
+    const menu = document.createElement('div');
+    menu.className = 'fixed z-50 bg-white rounded-lg shadow-lg border border-[#e5e2dd] py-1 min-w-[140px]';
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    menu.innerHTML = `
+        <button data-action="document" class="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] text-[#24221f] hover:bg-[#f5f3ef]">
+            <span class="shrink-0 text-[#8a857e]">${ICONS.document}</span> New Document
+        </button>
+        <button data-action="folder" class="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] text-[#24221f] hover:bg-[#f5f3ef]">
+            <span class="shrink-0 text-[#c07a12]">${ICONS.folder}</span> New Folder
+        </button>
+    `;
+    menu.querySelectorAll('button[data-action]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            hideRowAddMenu();
+            startCreate(btn.dataset.action, parentId);
+        });
+    });
+    document.body.appendChild(menu);
+    rowAddMenu = menu;
+
+    const close = (ev) => {
+        if (!menu.contains(ev.target)) {
+            hideRowAddMenu();
+            document.removeEventListener('click', close);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', close), 0);
+}
+
+function hideRowAddMenu() {
+    if (rowAddMenu) { rowAddMenu.remove(); rowAddMenu = null; }
 }
 
 export function startCreate(type, parentId) {
