@@ -217,6 +217,8 @@ body[data-theme='dark'] .is-checked-text {
     color: #6b675f !important;
 }
 
+.row-add-menu { background: #fff; }
+
 body[data-theme='dark'] #ctx-menu,
 body[data-theme='dark'] .item-menu,
 body[data-theme='dark'] #add-menu,

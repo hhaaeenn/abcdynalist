@@ -268,7 +268,7 @@ let rowAddMenu = null;
 function showAddMenu(x, y, parentId) {
     hideRowAddMenu();
     const menu = document.createElement('div');
-    menu.className = 'fixed z-50 row-add-menu bg-white rounded-lg shadow-lg border border-[#e5e2dd] py-1 min-w-[140px]';
+    menu.className = 'fixed z-50 row-add-menu rounded-lg shadow-lg border border-[#e5e2dd] py-1 min-w-[140px]';
     menu.style.left = `${x}px`;
     menu.style.top = `${y}px`;
     menu.innerHTML = `
