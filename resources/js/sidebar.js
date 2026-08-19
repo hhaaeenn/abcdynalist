@@ -269,7 +269,7 @@ export function startCreate(type, parentId) {
     input.type = 'text';
     input.placeholder = type === 'folder' ? 'Nama folder…' : 'Nama dokumen…';
     input.value = type === 'folder' ? 'New folder' : 'New document';
-    input.className = 'w-full rounded-md border border-[#d9a441] bg-white px-2 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#d9a441]/30 mb-1';
+    input.className = 'tree-rename-input w-full rounded-md border border-[#d9a441] bg-white px-2 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#d9a441]/30 mb-1';
     treeEl.prepend(input);
     input.focus();
     input.select();

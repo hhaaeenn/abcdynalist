@@ -515,7 +515,7 @@ function renameNode(node) {
     const input = document.createElement('input');
     input.type = 'text';
     input.value = node.name || '';
-    input.className = 'tree-label w-full text-[13px] rounded border border-[#d9a441] px-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#d9a441]/30';
+    input.className = 'tree-rename-input tree-label w-full text-[13px] rounded border border-[#d9a441] px-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#d9a441]/30';
     label.replaceWith(input);
     input.focus();
     input.select();

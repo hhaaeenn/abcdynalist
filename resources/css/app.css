@@ -1656,3 +1656,14 @@ body[data-theme='dark'] kbd.kbd {
     color: #c9c4bc;
     border-color: rgb(255 255 255 / 0.15);
 }
+
+/* ── Tree rename / create input ── */
+body[data-theme='dark'] .tree-rename-input,
+body[data-theme='dark'] #doc-tree input[type="text"] {
+    background: #292723 !important;
+    color: #e6e3dc !important;
+    border-color: rgb(255 255 255 / 0.15);
+}
+body[data-theme='dark'] #doc-tree input[type="text"]::placeholder {
+    color: #6b675f !important;
+}
