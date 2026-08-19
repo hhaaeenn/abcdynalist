@@ -3181,21 +3181,19 @@ async function deleteItem(id) {
     if (!id) return toast('Pilih item dulu', 'error');
     recordUndo();
     const idx = flat.findIndex((f) => f.node.id === id);
-    try {
-        await api.delete(`/documents/${docId}/items/${id}`);
-        removeNodeLocally(id);
-        collapsed.delete(id);
-        multi.delete(id);
-        if (selectedId === id) selectedId = null;
-        buildFlat();
-        applyZoomFilter();
-        render();
-        const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
-        if (target) selectItem(target.node.id);
-        toast('Item dihapus. Pulihkan dari Trash.');
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    removeNodeLocally(id);
+    collapsed.delete(id);
+    multi.delete(id);
+    if (selectedId === id) selectedId = null;
+    buildFlat();
+    applyZoomFilter();
+    render();
+    const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
+    if (target) selectItem(target.node.id);
+    api.delete(`/documents/${docId}/items/${id}`).catch((e) => {
+        showFailedAlert('Gagal menghapus: ' + e.message);
+        loadItems();
+    });
 }
 
 async function deleteChecked() {
