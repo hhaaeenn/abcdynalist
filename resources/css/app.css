@@ -219,15 +219,21 @@ body[data-theme='dark'] .is-checked-text {
 
 body[data-theme='dark'] #ctx-menu,
 body[data-theme='dark'] .item-menu,
-body[data-theme='dark'] #add-menu {
+body[data-theme='dark'] #add-menu,
+body[data-theme='dark'] .row-add-menu {
     background: #262420;
     border-color: rgb(255 255 255 / 0.1);
 }
 
 body[data-theme='dark'] #ctx-menu button,
 body[data-theme='dark'] .item-menu button,
-body[data-theme='dark'] #add-menu button {
+body[data-theme='dark'] #add-menu button,
+body[data-theme='dark'] .row-add-menu button {
     color: #d6d2cb;
+}
+
+body[data-theme='dark'] .row-add-menu button:hover {
+    background: #33302b;
 }
 
 body[data-theme='dark'] #quick-finder > div.relative,
