@@ -4794,6 +4794,7 @@ function wireOutline() {
             if (permanentUrl) {
                 URL.revokeObjectURL(blobUrl);
                 node.content = `![](${permanentUrl})`;
+                buildFlat(); applyZoomFilter(); render();
                 const realId = await promise.catch(() => null);
                 if (realId) api.patch(`/documents/${docId}/items/${realId}`, { content: node.content }).catch(() => {});
             }
