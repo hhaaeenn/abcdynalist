@@ -1,24 +1,31 @@
-let modal = null;
+let panel = null;
 
 export function open() {
-    if (!modal) modal = document.getElementById('help-modal');
-    modal.classList.remove('hidden');
+    if (!panel) panel = document.getElementById('help-panel');
+    panel.classList.remove('hidden');
+    panel.classList.add('flex');
 }
 
 export function close() {
-    if (!modal) modal = document.getElementById('help-modal');
-    modal.classList.add('hidden');
+    if (!panel) panel = document.getElementById('help-panel');
+    panel.classList.add('hidden');
+    panel.classList.remove('flex');
+}
+
+export function toggle() {
+    if (!panel) panel = document.getElementById('help-panel');
+    if (panel.classList.contains('hidden')) open();
+    else close();
 }
 
 export function init() {
-    modal = document.getElementById('help-modal');
+    panel = document.getElementById('help-panel');
 
     document.getElementById('help-close').addEventListener('click', close);
-    modal.querySelector('[data-help-close]').addEventListener('click', close);
-    document.getElementById('help-btn').addEventListener('click', open);
+    document.getElementById('help-btn').addEventListener('click', toggle);
 
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+        if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
             close();
             return;
         }
@@ -28,12 +35,12 @@ export function init() {
 
         if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === '?') {
             e.preventDefault();
-            open();
+            toggle();
             return;
         }
         if (!e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey && e.key === '?') {
             e.preventDefault();
-            open();
+            toggle();
         }
     });
 }

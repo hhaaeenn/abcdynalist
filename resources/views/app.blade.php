@@ -411,81 +411,80 @@
     </div>
 </div>
 
-{{-- Shortcut help modal --}}
-<div id="help-modal" class="hidden fixed inset-0 z-50">
-    <div class="absolute inset-0 bg-black/25" data-help-close></div>
-    <div class="relative max-w-2xl mx-auto mt-14 bg-white rounded-xl shadow-2xl border border-black/10 p-5 max-h-[82vh] overflow-y-auto">
-        <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm font-semibold text-[#24221f]">Pintasan &amp; Formatting</h3>
-            <button id="help-close" type="button" class="text-[12px] text-[#8a857e] hover:text-[#24221f]">Tutup</button>
+{{-- Shortcut help sidebar (right) --}}
+<aside id="help-panel"
+    class="hidden w-80 shrink-0 bg-[#fafaf9] border-l border-black/10 flex-col absolute right-0 top-0 bottom-0 z-30 shadow-xl overflow-y-auto">
+    <div class="flex items-center justify-between px-4 pt-4 pb-2 sticky top-0 bg-[#fafaf9] z-10">
+        <h2 class="text-[13px] font-semibold text-[#24221f]">Pintasan Keyboard</h2>
+        <button id="help-close" title="Tutup (Esc)"
+            class="w-7 h-7 flex items-center justify-center rounded-md text-[#5a5650] hover:bg-black/10 hover:text-black transition"
+            aria-label="Tutup pintasan">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+                <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+        </button>
+    </div>
+    <div class="px-4 pb-6 space-y-5">
+        <div>
+            <div class="help-head">Mengedit</div>
+            <div class="help-row"><kbd class="kbd">Enter</kbd><span>Item baru di bawah</span></div>
+            <div class="help-row"><kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd><span>Note / deskripsi</span></div>
+            <div class="help-row"><kbd class="kbd">Tab</kbd><span>Indent</span></div>
+            <div class="help-row"><kbd class="kbd">Shift</kbd>+<kbd class="kbd">Tab</kbd><span>Unindent</span></div>
+            <div class="help-row"><kbd class="kbd">Spasi</kbd><span>Tandai / selesai</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Enter</kbd><span>Tandai selesai</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd><span>Baris baru dalam item</span></div>
+            <div class="help-row"><kbd class="kbd">Del</kbd><span>Hapus item</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">↑</kbd><span>Pindah ke atas</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">↓</kbd><span>Pindah ke bawah</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Z</kbd><span>Undo</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Y</kbd><span>Redo</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">.</kbd><span>Lipat item</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">.</kbd><span>Lipat semua</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">]</kbd><span>Zoom masuk</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">[</kbd><span>Zoom keluar</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">D</kbd><span>Duplikat</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">C</kbd><span>Salin item</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">X</kbd><span>Potong item</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">V</kbd><span>Tempel sebagai anak</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">V</kbd><span>Tempel sebagai saudara</span></div>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            <div>
-                <div class="help-head">Mengedit</div>
-                <div class="help-row"><kbd class="kbd">Enter</kbd><span>Item baru di bawah</span></div>
-                <div class="help-row"><kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd><span>Beralih item / note</span></div>
-                <div class="help-row"><kbd class="kbd">Tab</kbd><span>Indent</span></div>
-                <div class="help-row"><kbd class="kbd">Shift</kbd>+<kbd class="kbd">Tab</kbd><span>Unindent</span></div>
-                <div class="help-row"><kbd class="kbd">Spasi</kbd><span>Tandai / selesai</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Enter</kbd><span>Tandai selesai</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd><span>Baris baru</span></div>
-                <div class="help-row"><kbd class="kbd">Del</kbd><span>Hapus item</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">↑</kbd><span>Pindah ke atas</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">↓</kbd><span>Pindah ke bawah</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Z</kbd><span>Undo</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Y</kbd><span>Redo</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">.</kbd><span>Lipat / buka lipatan item</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">.</kbd><span>Lipat / buka semua</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">]</kbd><span>Zoom masuk</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">[</kbd><span>Zoom keluar</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">D</kbd><span>Duplikat item</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">C</kbd><span>Salin item</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">X</kbd><span>Potong item</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">V</kbd><span>Tempel sebagai anak</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">V</kbd><span>Tempel sebagai saudara</span></div>
-            </div>
-            <div>
-                <div class="help-head">Format (saat mengedit)</div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">B</kbd><span>Tebal</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">I</kbd><span>Miring</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">K</kbd><span>Buat tautan</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">E</kbd><span>Keluar dari mode edit</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">E</kbd><span>Kode</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">C</kbd><span>Jadikan checklist</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">X</kbd><span>Jadikan bernomor</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">H</kbd><span>Ubah ke judul</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">L</kbd><span>Siklus warna</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">M</kbd><span>Pindah ke dokumen lain</span></div>
-                <div class="help-head">Global</div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">F</kbd><span>Cari dalam dokumen</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">P</kbd> / <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">O</kbd><span>Cari cepat dokumen</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">P</kbd> / <kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">O</kbd><span>Cari cepat item</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">B</kbd><span>Panel bookmark</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">F</kbd><span>Alihkan panel kiri</span></div>
-                <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">?</kbd> / <kbd class="kbd">?</kbd><span>Bantuan ini</span></div>
-                <div class="help-row"><kbd class="kbd">Esc</kbd><span>Tutup dialog</span></div>
-            </div>
+        <div>
+            <div class="help-head">Format (saat mengedit)</div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">B</kbd><span>Tebal</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">I</kbd><span>Miring</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">K</kbd><span>Buat tautan</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">E</kbd><span>Keluar edit</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">E</kbd><span>Kode</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">C</kbd><span>Checklist</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">X</kbd><span>Bernomor</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">H</kbd><span>Judul</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">L</kbd><span>Siklus warna</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">M</kbd><span>Pindah dokumen</span></div>
         </div>
-        <div class="mt-6">
-            <div class="help-head mb-2">Format (Markdown)</div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5">
-                <div class="help-row"><code class="md">**teks**</code><span>Tebal</span></div>
-                <div class="help-row"><code class="md">__teks__</code><span>Miring</span></div>
-                <div class="help-row"><code class="md">~~teks~~</code><span>Coret</span></div>
-                <div class="help-row"><code class="md">==teks==</code><span>Sorotan</span></div>
-                <div class="help-row"><code class="md">`kode`</code><span>Kode inline</span></div>
-                <div class="help-row"><code class="md">```blok```</code><span>Blok kode</span></div>
-                <div class="help-row"><code class="md">[label](url)</code><span>Tautan</span></div>
-                <div class="help-row"><code class="md">![alt](url)</code><span>Gambar</span></div>
-                <div class="help-row"><code class="md">[[label|id-item]]</code><span>Tautan antar item</span></div>
-                <div class="help-row"><code class="md">#tag</code><span>Tag</span></div>
-                <div class="help-row"><code class="md">$$e=mc^2$$</code><span>Rumus (LaTeX)</span></div>
-                <div class="help-row"><code class="md">@2026-08-10</code><span>Tanggal</span></div>
-                <div class="help-row"><code class="md">!2026-08-10</code><span>Pengingat (bisa + jam: !2026-08-10 14:30)</span></div>
-            </div>
+        <div>
+            <div class="help-head">Global</div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">F</kbd><span>Cari dalam dokumen</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">P</kbd><span>Cari dokumen</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">P</kbd><span>Cari item</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">B</kbd><span>Bookmark</span></div>
+            <div class="help-row"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Shift</kbd>+<kbd class="kbd">F</kbd><span>Panel kiri</span></div>
+            <div class="help-row"><kbd class="kbd">?</kbd><span>Bantuan ini</span></div>
+        </div>
+        <div>
+            <div class="help-head">Markdown</div>
+            <div class="help-row"><code class="md">**teks**</code><span>Tebal</span></div>
+            <div class="help-row"><code class="md">__teks__</code><span>Miring</span></div>
+            <div class="help-row"><code class="md">~~teks~~</code><span>Coret</span></div>
+            <div class="help-row"><code class="md">==teks==</code><span>Sorotan</span></div>
+            <div class="help-row"><code class="md">`kode`</code><span>Kode inline</span></div>
+            <div class="help-row"><code class="md">```blok```</code><span>Blok kode</span></div>
+            <div class="help-row"><code class="md">[label](url)</code><span>Tautan</span></div>
+            <div class="help-row"><code class="md">![alt](url)</code><span>Gambar</span></div>
+            <div class="help-row"><code class="md">#tag</code><span>Tag</span></div>
         </div>
     </div>
-</div>
+</aside>
 
 {{-- Settings modal --}}
 <div id="settings-modal" class="hidden fixed inset-0 z-50">
