@@ -1089,7 +1089,7 @@ function contentFromElement(el) {
             } else if (node.tagName === 'STRONG' || node.tagName === 'B') {
                 if (node.textContent) out += `**${node.textContent}**`;
             } else if (node.tagName === 'EM' || node.tagName === 'I') {
-                if (node.textContent) out += `*${node.textContent}*`;
+                if (node.textContent) out += `__${node.textContent}__`;
             } else if (node.tagName === 'CODE') {
                 if (node.textContent) out += `\`${node.textContent}\``;
             } else if (node.classList && node.classList.contains('md-codeblock')) {
