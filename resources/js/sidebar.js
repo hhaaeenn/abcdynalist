@@ -264,6 +264,7 @@ export function selectDocument(node) {
 }
 
 let rowAddMenu = null;
+let rowAddMenuClose = null;
 
 function showAddMenu(x, y, parentId) {
     hideRowAddMenu();
@@ -288,16 +289,21 @@ function showAddMenu(x, y, parentId) {
     document.body.appendChild(menu);
     rowAddMenu = menu;
 
-    const close = (ev) => {
-        if (!menu.contains(ev.target)) {
+    rowAddMenuClose = (ev) => {
+        if (!rowAddMenu || !rowAddMenu.contains(ev.target)) {
             hideRowAddMenu();
-            document.removeEventListener('click', close);
+            document.removeEventListener('click', rowAddMenuClose);
+            rowAddMenuClose = null;
         }
     };
-    setTimeout(() => document.addEventListener('click', close), 0);
+    setTimeout(() => document.addEventListener('click', rowAddMenuClose), 0);
 }
 
 function hideRowAddMenu() {
+    if (rowAddMenuClose) {
+        document.removeEventListener('click', rowAddMenuClose);
+        rowAddMenuClose = null;
+    }
     if (rowAddMenu) { rowAddMenu.remove(); rowAddMenu = null; }
 }
 

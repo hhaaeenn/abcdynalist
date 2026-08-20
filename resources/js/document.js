@@ -3862,7 +3862,8 @@ function setFlatSearch(on) {
         savedCollapsed = new Set(collapsed);
         collapsed.clear();
     } else if (savedCollapsed) {
-        collapsed = savedCollapsed;
+        collapsed.clear();
+        savedCollapsed.forEach((id) => collapsed.add(id));
         savedCollapsed = null;
     }
     const hint = document.getElementById('doc-search-flat-hint');

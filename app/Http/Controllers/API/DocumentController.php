@@ -162,6 +162,8 @@ class DocumentController extends Controller
             $doc->delete();
         });
 
+        $this->reorderSiblings($user->id, $document->parent_id);
+
         return response()->json([
             'status' => 'success',
             'message' => 'Document deleted',
