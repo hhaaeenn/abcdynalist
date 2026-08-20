@@ -414,8 +414,8 @@
 {{-- Shortcut help sidebar (right) --}}
 <aside id="help-panel"
     class="hidden w-80 shrink-0 bg-[#fafaf9] border-l border-black/10 flex-col absolute right-0 top-0 bottom-0 z-30 shadow-xl overflow-y-auto">
-    <div class="flex items-center justify-between px-4 pt-4 pb-2 sticky top-0 bg-[#fafaf9] z-10">
-        <h2 class="text-[13px] font-semibold text-[#24221f]">Pintasan Keyboard</h2>
+    <div class="flex items-center justify-between px-4 pt-4 pb-2 sticky top-0 z-10 help-panel-header">
+        <h2 class="text-[13px] font-semibold">Pintasan Keyboard</h2>
         <button id="help-close" title="Tutup (Esc)"
             class="w-7 h-7 flex items-center justify-center rounded-md text-[#5a5650] hover:bg-black/10 hover:text-black transition"
             aria-label="Tutup pintasan">

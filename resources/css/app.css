@@ -1595,8 +1595,25 @@ body[data-theme='dark'] #help-panel {
     background: #1c1b19;
     border-color: rgb(255 255 255 / 0.1);
 }
+body[data-theme='dark'] #help-panel .help-panel-header {
+    background: #1c1b19;
+}
+body[data-theme='dark'] #help-panel .help-panel-header h2 {
+    color: #e8e4dc;
+}
 body[data-theme='dark'] #help-panel .help-row span {
     color: #c4bfb5;
+}
+body[data-theme='dark'] #help-panel .help-row .md {
+    background: rgb(255 255 255 / 0.1);
+    color: #e8a44a;
+}
+body[data-theme='dark'] #help-panel #help-close {
+    color: #8a857e;
+}
+body[data-theme='dark'] #help-panel #help-close:hover {
+    background: rgb(255 255 255 / 0.1);
+    color: #e8e4dc;
 }
 body[data-theme='dark'] .settings-label {
     color: #c07a12;
