@@ -3176,8 +3176,19 @@ async function toggleCheck(id) {
 
 async function indent(id) {
     if (!id) return toast('Pilih item dulu', 'error');
+    const node = rows.get(id)?.node;
+    if (!node) return;
+    const siblings = flat.filter((f) => (f.node.parent_id || null) === (node.parent_id || null));
+    const idx = siblings.findIndex((f) => f.node.id === id);
+    if (idx <= 0) return toast('Tidak bisa indent');
+    const prevSibling = siblings[idx - 1].node;
     recordUndo();
-    loadItems();
+    const oldParentId = node.parent_id || null;
+    removeNodeLocally(id);
+    prevSibling.children = prevSibling.children || [];
+    node.parent_id = prevSibling.id;
+    prevSibling.children.push(node);
+    buildFlat(); applyZoomFilter(); render(); selectItem(id);
     api.post(`/documents/${docId}/items/${id}/indent`).catch((e) => {
         showFailedAlert(e.message);
         loadItems();
@@ -3186,8 +3197,19 @@ async function indent(id) {
 
 async function unindent(id) {
     if (!id) return toast('Pilih item dulu', 'error');
+    const node = rows.get(id)?.node;
+    if (!node || !node.parent_id) return toast('Tidak bisa unindent');
+    const parent = rows.get(node.parent_id)?.node;
+    if (!parent) return;
     recordUndo();
-    loadItems();
+    const grandparentId = parent.parent_id || null;
+    removeNodeLocally(id);
+    const parentSiblings = flat.filter((f) => (f.node.parent_id || null) === grandparentId);
+    const parentIdx = parentSiblings.findIndex((f) => f.node.id === parent.id);
+    const insertPos = parentIdx + 1;
+    node.parent_id = grandparentId;
+    insertNodeLocally(grandparentId, insertPos, node);
+    buildFlat(); applyZoomFilter(); render(); selectItem(id);
     api.post(`/documents/${docId}/items/${id}/unindent`).catch((e) => {
         showFailedAlert(e.message);
         loadItems();
