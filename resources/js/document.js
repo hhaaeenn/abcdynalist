@@ -983,6 +983,10 @@ function isCaretAtStart(textEl) {
     return r.toString() === '';
 }
 
+function isTailOnlyMarkers(text) {
+    return !text.replace(/[*_~`=]/g, '').trim();
+}
+
 function splitTailAtCaret(textEl) {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return '';
@@ -997,7 +1001,7 @@ function splitTailAtCaret(textEl) {
     holder.appendChild(tailRange.extractContents());
     const tail = contentFromElement(holder);
     const restore = () => textEl.append(...Array.from(holder.childNodes));
-    if (!tail.trim()) {
+    if (!tail.trim() || isTailOnlyMarkers(tail)) {
         restore();
         return '';
     }
@@ -1083,11 +1087,11 @@ function contentFromElement(el) {
             } else if (node.classList && node.classList.contains('internal-link')) {
                 out += `[[${node.textContent}|${node.dataset.id}]]`;
             } else if (node.tagName === 'STRONG' || node.tagName === 'B') {
-                out += `**${node.textContent}**`;
+                if (node.textContent) out += `**${node.textContent}**`;
             } else if (node.tagName === 'EM' || node.tagName === 'I') {
-                out += `__${node.textContent}__`;
+                if (node.textContent) out += `*${node.textContent}*`;
             } else if (node.tagName === 'CODE') {
-                out += `\`${node.textContent}\``;
+                if (node.textContent) out += `\`${node.textContent}\``;
             } else if (node.classList && node.classList.contains('md-codeblock')) {
                 let code = '';
                 for (const c of node.childNodes) {
