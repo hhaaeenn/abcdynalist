@@ -814,21 +814,22 @@ function buildRow(node, depth) {
         if (!t) return;
         let lines = t.split(/\r?\n/);
         while (lines.length && lines[lines.length - 1] === '') lines.pop();
+        if (!lines.length) return;
         document.execCommand('insertText', false, lines[0]);
         if (lines.length > 1) {
             const parentId = node.parent_id || null;
             const pos = siblingPosition(node) + 1;
-            commitEdit(node.id).then(async () => {
-                let position = pos;
-                try {
-                    for (const line of lines.slice(1)) {
-                        await api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line });
-                        position++;
-                    }
-                    await loadItems();
-                } catch (err) {
-                    showFailedAlert(err.message);
-                }
+            const rest = lines.slice(1);
+            recordUndo();
+            rest.forEach((line, i) => {
+                const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${i}`;
+                const tmpNode = { id: tmpId, parent_id: parentId, content: line, note: '', checked: false, heading: 0, color: null, bullet: node.bullet || defaultBullet, tags: [], sort_order: pos + i, children: [] };
+                insertNodeLocally(parentId, pos + i, tmpNode);
+            });
+            buildFlat(); applyZoomFilter(); render();
+            startEdit(id);
+            rest.forEach((line, i) => {
+                api.post(`/documents/${docId}/items`, { parent_id: parentId, position: pos + i, content: line, bullet: node.bullet || defaultBullet }).catch(() => loadItems());
             });
         }
     });
