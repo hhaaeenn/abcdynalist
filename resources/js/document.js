@@ -1054,17 +1054,19 @@ async function deleteImage(id, url) {
     const path = String(url || '').split('/storage/')[1] || '';
     const content = rec.node.content || '';
     const next = content.replace(new RegExp(`!\\[[^\\]]*\\]\\(${escapeRegExp(url)}\\)`), ' ').replace(/\s{2,}/g, ' ').trim();
-    try {
-        if (path.startsWith('images/')) {
-            await api.delete(`/documents/${docId}/images`, { path });
-        }
-        if (next !== content) {
-            await api.patch(`/documents/${docId}/items/${id}`, { content: next });
-            rec.node.content = next;
-        }
-        render();
-    } catch (e) {
-        showFailedAlert(e.message);
+    if (next !== content) {
+        rec.node.content = next;
+    }
+    render();
+    if (path.startsWith('images/')) {
+        api.delete(`/documents/${docId}/images`, { path }).catch(() => {});
+    }
+    if (next !== content) {
+        api.patch(`/documents/${docId}/items/${id}`, { content: next }).catch((e) => {
+            rec.node.content = content;
+            render();
+            showFailedAlert(e.message);
+        });
     }
 }
 
@@ -1151,14 +1153,10 @@ async function bulkComplete(checked) {
     const targets = flat.filter((f) => multi.has(f.node.id) && (f.node.bullet || 'bullet') === 'checklist');
     if (!targets.length) return;
     recordUndo();
-    try {
-        await Promise.all(targets.map((f) => api.patch(`/documents/${docId}/items/${f.node.id}`, { checked })));
-        targets.forEach((f) => { f.node.checked = checked; });
-        clearMulti();
-        render();
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    targets.forEach((f) => { f.node.checked = checked; });
+    clearMulti();
+    render();
+    Promise.all(targets.map((f) => api.patch(`/documents/${docId}/items/${f.node.id}`, { checked }).catch(() => {}))).catch(() => loadItems());
 }
 
 async function bulkDelete() {
@@ -1434,40 +1432,47 @@ async function insertDroppedFiles(dt, parentId) {
     const text = dt ? dt.getData('text/plain') : '';
     if (!files.length && !text) return;
     recordUndo();
-    try {
-        let position = parentId ? childCount(parentId) : flat.filter((f) => !f.node.parent_id).length;
-        let firstId = null;
-        const create = async (content) => {
-            const data = await api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content });
-            if (!firstId) firstId = data.data.id;
+    let position = parentId ? childCount(parentId) : flat.filter((f) => !f.node.parent_id).length;
+    const promises = [];
+    const tempIds = [];
+    if (!files.length) {
+        const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+        lines.forEach((line) => {
+            const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${position}`;
+            const tmpNode = { id: tmpId, parent_id: parentId, content: line, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: position, children: [] };
+            insertNodeLocally(parentId, position, tmpNode);
+            tempIds.push(tmpId);
+            promises.push(api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line }).then((d) => ({ tmpId, realId: d.data.id })).catch(() => ({ tmpId, realId: null })));
             position++;
-        };
-        if (!files.length) {
-            const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-            for (const line of lines) await create(line);
-        } else {
-            for (const file of files) {
-                if (file.type.startsWith('image/')) {
-                    const url = await uploadImage(file);
-                    if (url) await create(`![](${url})`);
-                    continue;
-                }
-                try {
-                    const body = await file.text();
-                    const lines = body.split(/\r?\n/);
-                    for (const line of lines) {
-                        if (line.trim()) await create(line.slice(0, 5000));
-                    }
-                } catch {
-                    await create(`[${file.name}](${file.name})`);
-                }
+        });
+    } else {
+        for (const file of files) {
+            if (file.type.startsWith('image/')) {
+                promises.push(uploadImage(file).then((url) => {
+                    if (url) return api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: `![](${url})` }).then((d) => ({ tmpId: null, realId: d.data.id }));
+                    return null;
+                }).catch(() => null));
+                position++;
+                continue;
+            }
+            try {
+                const body = await file.text();
+                const lines = body.split(/\r?\n/).filter((l) => l.trim());
+                lines.forEach((line) => {
+                    promises.push(api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line.slice(0, 5000) }).then((d) => ({ tmpId: null, realId: d.data.id })).catch(() => null));
+                    position++;
+                });
+            } catch {
+                promises.push(api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: `[${file.name}](${file.name})` }).then((d) => ({ tmpId: null, realId: d.data.id })).catch(() => null));
+                position++;
             }
         }
-        await loadItems();
-        if (firstId) selectItem(firstId);
-    } catch (err) {
-        showFailedAlert(err.message);
     }
+    buildFlat(); applyZoomFilter(); render();
+    const results = await Promise.all(promises);
+    const firstReal = results.find((r) => r?.realId);
+    if (firstReal) selectItem(firstReal.realId);
+    loadItems();
 }
 
 async function doMove(id, action) {
@@ -1498,13 +1503,14 @@ async function doMove(id, action) {
         position = newPos;
     }
 
-    try {
-        await api.post(`/documents/${docId}/items/${id}/move`, { parent_id: parentId, position });
-        await loadItems();
-        selectItem(id);
-    } catch (e) {
+    removeNodeLocally(id);
+    node.parent_id = parentId;
+    insertNodeLocally(parentId, position, node);
+    buildFlat(); applyZoomFilter(); render(); selectItem(id);
+    api.post(`/documents/${docId}/items/${id}/move`, { parent_id: parentId, position }).catch((e) => {
         showFailedAlert(e.message);
-    }
+        loadItems();
+    });
 }
 
 async function doCopyDrop(id, action) {
@@ -1549,37 +1555,27 @@ async function doMoveMany(ids, action) {
         });
     if (!ordered.length) return;
     recordUndo();
-    const groupStart = flat.findIndex((f) => f.node.id === ordered[0].id);
-
-    try {
-        if (action.type === 'child') {
-            const base = childCount(target.id);
-            for (let i = 0; i < ordered.length; i++) {
-                await api.post(`/documents/${docId}/items/${ordered[i].id}/move`, { parent_id: target.id, position: base + i });
-            }
-        } else {
-            const parentId = target.parent_id || null;
-            const base = indexAmongSiblings(target) + (action.type === 'after' ? 1 : 0);
-            const sameParent = ordered.every((n) => (n.parent_id || null) === (parentId || null));
-            let seq;
-            let positions;
-            if (sameParent) {
-                const moveDown = base >= groupStart;
-                seq = moveDown ? [...ordered].reverse() : ordered;
-                positions = seq.map(() => base);
-            } else {
-                seq = ordered;
-                positions = seq.map((_, i) => base + i);
-            }
-            for (let i = 0; i < seq.length; i++) {
-                await api.post(`/documents/${docId}/items/${seq[i].id}/move`, { parent_id: parentId, position: positions[i] });
-            }
-        }
-        await loadItems();
-        selectItem(ordered[ordered.length - 1].id);
-    } catch (e) {
-        showFailedAlert(e.message);
+    const promises = [];
+    if (action.type === 'child') {
+        const base = childCount(target.id);
+        ordered.forEach((n, i) => {
+            removeNodeLocally(n.id);
+            n.parent_id = target.id;
+            insertNodeLocally(target.id, base + i, n);
+            promises.push(api.post(`/documents/${docId}/items/${n.id}/move`, { parent_id: target.id, position: base + i }).catch(() => {}));
+        });
+    } else {
+        const parentId = target.parent_id || null;
+        const base = indexAmongSiblings(target) + (action.type === 'after' ? 1 : 0);
+        ordered.forEach((n, i) => {
+            removeNodeLocally(n.id);
+            n.parent_id = parentId;
+            insertNodeLocally(parentId, base + i, n);
+            promises.push(api.post(`/documents/${docId}/items/${n.id}/move`, { parent_id: parentId, position: base + i }).catch(() => {}));
+        });
     }
+    buildFlat(); applyZoomFilter(); render(); selectItem(ordered[ordered.length - 1].id);
+    Promise.all(promises).then(() => loadItems()).catch(() => loadItems());
 }
 
 function openNoteEditor(id) {
@@ -1595,20 +1591,21 @@ function openNoteEditor(id) {
     ta.focus();
 
     let done = false;
-    const finish = async (save) => {
+    const finish = (save) => {
         if (done) return;
         done = true;
         const value = ta.value.trim();
         ta.remove();
         if (save && value !== (rec.node.note || '')) {
             recordUndo();
-            try {
-                await api.patch(`/documents/${docId}/items/${id}`, { note: value });
-                rec.node.note = value;
+            const prev = rec.node.note;
+            rec.node.note = value;
+            render();
+            api.patch(`/documents/${docId}/items/${id}`, { note: value }).catch((e) => {
+                rec.node.note = prev;
                 render();
-            } catch (e) {
                 showFailedAlert(e.message);
-            }
+            });
         } else if (!save) {
             render();
         }
@@ -1861,22 +1858,25 @@ function expandToLevel(level) {
 
 async function sortChildren(id, order) {
     recordUndo();
-    try {
-        await api.post(`/documents/${docId}/items/${id}/sort`, { order });
-        await loadItems();
-    } catch (e) {
-        showFailedAlert(e.message);
+    const rec = rows.get(id);
+    if (!rec) return;
+    const children = flat.filter((f) => f.node.parent_id === id).map((f) => f.node);
+    if (order === 'asc') children.sort((a, b) => (a.content || '').localeCompare(b.content || ''));
+    else if (order === 'desc') children.sort((a, b) => (b.content || '').localeCompare(a.content || ''));
+    else if (order === 'shuffle') {
+        for (let i = children.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [children[i], children[j]] = [children[j], children[i]]; }
     }
+    const treeParent = id ? findNodeInTree(id) : null;
+    if (treeParent) { treeParent.children = children; children.forEach((c) => { c.parent_id = id; }); }
+    buildFlat(); applyZoomFilter(); render();
+    api.post(`/documents/${docId}/items/${id}/sort`, { order }).catch((e) => { showFailedAlert(e.message); loadItems(); });
 }
 
 async function toggleCheckChildren(id, checked) {
     recordUndo();
-    try {
-        await api.post(`/documents/${docId}/items/${id}/toggle-check-children`, { checked });
-        await loadItems();
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    flat.filter((f) => f.parents.includes(id) || f.node.id === id).forEach((f) => { f.node.checked = checked; });
+    render();
+    api.post(`/documents/${docId}/items/${id}/toggle-check-children`, { checked }).catch((e) => { showFailedAlert(e.message); loadItems(); });
 }
 
 function openMovePicker(id) {
@@ -1890,29 +1890,25 @@ function openMovePicker(id) {
 
 async function moveItemToDocument(id, targetDocId) {
     recordUndo();
-    try {
-        await api.post(`/documents/${docId}/items/${id}/move-document`, { target_document_id: targetDocId });
-        showSuccess('Item dipindahkan');
-        await loadTree();
-        await loadItems();
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    removeNodeLocally(id);
+    buildFlat(); applyZoomFilter(); render();
+    showSuccess('Item dipindahkan');
+    Promise.all([
+        api.post(`/documents/${docId}/items/${id}/move-document`, { target_document_id: targetDocId }).catch(() => {}),
+        loadTree(),
+    ]).catch(() => loadItems());
 }
 
 export async function moveItemsToDocument(ids, targetDocId) {
     const roots = ids.filter((id) => !ids.some((o) => o !== id && flat.find((f) => f.node.id === id)?.parents.includes(o)));
     recordUndo();
-    try {
-        for (const id of roots) {
-            await api.post(`/documents/${docId}/items/${id}/move-document`, { target_document_id: targetDocId });
-        }
-        showSuccess(roots.length > 1 ? `${roots.length} item dipindahkan` : 'Item dipindahkan');
-        await loadTree();
-        await loadItems();
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    roots.forEach((id) => removeNodeLocally(id));
+    buildFlat(); applyZoomFilter(); render();
+    showSuccess(roots.length > 1 ? `${roots.length} item dipindahkan` : 'Item dipindahkan');
+    Promise.all([
+        ...roots.map((id) => api.post(`/documents/${docId}/items/${id}/move-document`, { target_document_id: targetDocId }).catch(() => {})),
+        loadTree(),
+    ]).catch(() => loadItems());
 }
 
 function snapshotNode(node) {
@@ -2163,16 +2159,17 @@ function menuItemsFor(node) {
     if (docNode) {
         items.push({
             label: docNode.is_inbox ? 'Remove as inbox' : 'Set as inbox',
-            action: async () => {
+            action: () => {
                 const isInbox = !docNode.is_inbox;
-                try {
-                    await api.post(`/documents/${docId}/set-inbox`, { is_inbox });
-                    docNode.is_inbox = isInbox;
-                    toast(isInbox ? 'Dokumen dijadikan Inbox' : 'Inbox dihapus dari dokumen');
-                    await loadTree();
-                } catch (err) {
+                const prev = docNode.is_inbox;
+                docNode.is_inbox = isInbox;
+                loadTree();
+                toast(isInbox ? 'Dokumen dijadikan Inbox' : 'Inbox dihapus dari dokumen');
+                api.post(`/documents/${docId}/set-inbox`, { is_inbox: isInbox }).catch((err) => {
+                    docNode.is_inbox = prev;
+                    loadTree();
                     toast(err.message, 'error');
-                }
+                });
             },
         });
     }
@@ -2481,16 +2478,12 @@ function toggleBulletType(id, type) {
 async function setBulletChildren(id, bullet) {
     const rec = rows.get(id);
     if (!rec) return;
-    // Persis ABCLIST: "Add checkbox to children" = item itu sendiri + semua descendant
     const targets = [rec.node, ...flat.filter((f) => f.parents.includes(id)).map((f) => f.node)];
     if (!targets.length) return;
     recordUndo();
-    try {
-        await Promise.all(targets.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet })));
-        await loadItems();
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    targets.forEach((c) => { c.bullet = bullet; });
+    render();
+    Promise.all(targets.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet }).catch(() => {}))).then(() => {}).catch(() => loadItems());
 }
 
 function renderMenuItems(items) {
@@ -3263,13 +3256,10 @@ async function numberChildren() {
     const children = flat.filter((f) => f.node.parent_id === rec.node.id).map((f) => f.node);
     if (!children.length) return toast('Item ini tidak punya anak', 'error');
     recordUndo();
-    try {
-        await Promise.all(children.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet: 'numbered' })));
-        showSuccess('Anak dinomori');
-        await loadItems();
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    children.forEach((c) => { c.bullet = 'numbered'; });
+    render();
+    showSuccess('Anak dinomori');
+    Promise.all(children.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet: 'numbered' }).catch(() => {}))).catch(() => loadItems());
 }
 
 async function deduplicateChildren(id) {
@@ -3291,13 +3281,10 @@ async function stopNumberingChildren() {
     const children = flat.filter((f) => f.node.parent_id === rec.node.id).map((f) => f.node);
     if (!children.length) return;
     recordUndo();
-    try {
-        await Promise.all(children.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet: 'bullet' })));
-        showSuccess('Penomoran anak dihapus');
-        await loadItems();
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    children.forEach((c) => { c.bullet = 'bullet'; });
+    render();
+    showSuccess('Penomoran anak dihapus');
+    Promise.all(children.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet: 'bullet' }).catch(() => {}))).catch(() => loadItems());
 }
 
 async function move(dir) {
@@ -3548,14 +3535,15 @@ async function cycleDocColor() {
     if (!node || node.type === 'folder') return;
     const i = Math.max(0, DOC_COLOR_CYCLE.indexOf(node.color || null));
     const color = DOC_COLOR_CYCLE[(i + 1) % DOC_COLOR_CYCLE.length];
-    try {
-        await api.patch(`/documents/${docId}`, { color });
-        node.color = color;
-        await loadTree();
-        toast(color ? 'Warna label dokumen diubah.' : 'Warna label dokumen dihapus.');
-    } catch (e) {
+    const prev = node.color;
+    node.color = color;
+    loadTree();
+    toast(color ? 'Warna label dokumen diubah.' : 'Warna label dokumen dihapus.');
+    api.patch(`/documents/${docId}`, { color }).catch((e) => {
+        node.color = prev;
+        loadTree();
         showFailedAlert(e.message);
-    }
+    });
 }
 
 function insertLineBreak(container) {
@@ -3733,25 +3721,22 @@ function updateBookmarkBtn() {
 }
 
 async function toggleBookmark() {
-    if (isBookmarked()) {
+    const wasBookmarked = isBookmarked();
+    if (wasBookmarked) {
         const b = bookmarks.find((x) => x.target_type === 'document' && String(x.target.id) === String(docId));
-        try {
-            await api.delete(`/bookmarks/${b.id}`);
-            showSuccess('Bookmark dihapus');
-        } catch (e) {
-            showFailedAlert(e.message);
-            return;
-        }
+        bookmarks = bookmarks.filter((x) => x !== b);
+        updateBookmarkBtn();
+        showSuccess('Bookmark dihapus');
+        api.delete(`/bookmarks/${b.id}`).catch((e) => { showFailedAlert(e.message); loadBookmarkState(); });
     } else {
-        try {
-            await api.post('/bookmarks', { target_type: 'document', target_id: docId });
-            showSuccess('Dibookmark');
-        } catch (e) {
-            showFailedAlert(e.message);
-            return;
-        }
+        const temp = { id: `tmp-${Date.now()}`, target_type: 'document', target: { id: docId } };
+        bookmarks.push(temp);
+        updateBookmarkBtn();
+        showSuccess('Dibookmark');
+        api.post('/bookmarks', { target_type: 'document', target_id: docId }).then((d) => {
+            Object.assign(temp, d.data || d);
+        }).catch((e) => { showFailedAlert(e.message); loadBookmarkState(); });
     }
-    await loadBookmarkState();
 }
 
 function isItemBookmarked(id) {
@@ -3760,18 +3745,19 @@ function isItemBookmarked(id) {
 
 async function toggleItemBookmark(id) {
     const existing = bookmarks.find((b) => b.target_type === 'item' && b.target && String(b.target.id) === String(id));
-    try {
-        if (existing) {
-            await api.delete(`/bookmarks/${existing.id}`);
-            showSuccess('Bookmark dihapus');
-        } else {
-            await api.post('/bookmarks', { target_type: 'item', target_id: id });
-            showSuccess('Item dibookmark');
-        }
-        await loadBookmarkState();
+    if (existing) {
+        bookmarks = bookmarks.filter((b) => b !== existing);
+        showSuccess('Bookmark dihapus');
         loadBookmarks();
-    } catch (e) {
-        showFailedAlert(e.message);
+        api.delete(`/bookmarks/${existing.id}`).catch((e) => { showFailedAlert(e.message); loadBookmarkState(); });
+    } else {
+        const temp = { id: `tmp-${Date.now()}`, target_type: 'item', target: { id } };
+        bookmarks.push(temp);
+        showSuccess('Item dibookmark');
+        loadBookmarks();
+        api.post('/bookmarks', { target_type: 'item', target_id: id }).then((d) => {
+            Object.assign(temp, d.data || d);
+        }).catch((e) => { showFailedAlert(e.message); loadBookmarkState(); });
     }
 }
 
@@ -4121,15 +4107,15 @@ function renderTrash() {
 }
 
 async function restoreFromTrash(id) {
+    closeTrash();
+    showSuccess('Memulihkan item...', 'Dipulihkan');
     try {
-        const data = await api.post(`/documents/${docId}/items/${id}/restore`);
-        await loadTrash();
-        closeTrash();
-        await loadItems();
+        await api.post(`/documents/${docId}/items/${id}/restore`);
+        await Promise.all([loadTrash(), loadItems()]);
         if (flat.some((f) => f.node.id === id)) selectItem(id);
-        showSuccess(data.message || 'Item dipulihkan', 'Dipulihkan');
     } catch (e) {
         showFailedAlert(e.message);
+        loadItems();
     }
 }
 
@@ -4431,7 +4417,7 @@ async function srReplaceAll() {
     try {
         const data = await api.post(`/documents/${docId}/items-search`, { ...p, replace_with: els.srReplace.value });
         showSr(`Diganti di ${data.count} item.`);
-        await loadItems();
+        loadItems();
     } catch (e) {
         showSr(e.message);
     }
