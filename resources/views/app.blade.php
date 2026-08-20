@@ -180,6 +180,9 @@
         {{-- Toolbar --}}
         <div id="doc-toolbar" class="hidden shrink-0 h-[36px] px-2.5 border-b border-black/5 bg-white flex items-center justify-between overflow-x-auto">
             <div class="flex items-center gap-0.5">
+                <button id="mobile-menu-btn" title="Menu" class="tool-btn hidden max-md:flex" aria-label="Toggle sidebar">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
                 <button id="undo-btn" title="Undo (Ctrl+Z)" class="tool-btn" disabled>
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[17px] h-[17px]"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
                 </button>

@@ -1861,8 +1861,16 @@ async function sortChildren(id, order) {
     const rec = rows.get(id);
     if (!rec) return;
     const children = flat.filter((f) => f.node.parent_id === id).map((f) => f.node);
-    if (order === 'asc') children.sort((a, b) => (a.content || '').localeCompare(b.content || ''));
-    else if (order === 'desc') children.sort((a, b) => (b.content || '').localeCompare(a.content || ''));
+    if (order === 'default') { /* no-op, restore original order */ }
+    else if (order === 'name_asc') children.sort((a, b) => (a.content || '').localeCompare(b.content || ''));
+    else if (order === 'name_desc') children.sort((a, b) => (b.content || '').localeCompare(a.content || ''));
+    else if (order === 'checked') children.sort((a, b) => (a.checked ? 1 : 0) - (b.checked ? 1 : 0));
+    else if (order === 'checked_desc') children.sort((a, b) => (b.checked ? 1 : 0) - (a.checked ? 1 : 0));
+    else if (order === 'updated_desc') children.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    else if (order === 'updated_asc') children.sort((a, b) => new Date(a.updated_at || 0) - new Date(b.updated_at || 0));
+    else if (order === 'created_desc') children.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    else if (order === 'created_asc') children.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    else if (order === 'reverse') children.reverse();
     else if (order === 'shuffle') {
         for (let i = children.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [children[i], children[j]] = [children[j], children[i]]; }
     }
@@ -2109,13 +2117,27 @@ function menuItemsFor(node) {
         items.push({ label: 'Unindent', shortcut: 'Shift+Tab', action: () => unindent(node.id) });
     }
     items.push({ label: 'Move to…', shortcut: 'Ctrl+Shift+M', action: () => openMovePicker(node.id) });
-    items.push({
-        label: 'Insert template…',
-        children: Object.keys(TEMPLATES).map((name) => ({
+
+    const userTpls = getUserTemplates();
+    const tplChildren = [
+        ...Object.keys(TEMPLATES).map((name) => ({
             label: name,
             action: () => insertTemplate(node.id, name),
         })),
-    });
+    ];
+    if (userTpls.length) {
+        tplChildren.push({ label: '—' });
+        userTpls.forEach((t) => {
+            tplChildren.push({
+                label: t.name,
+                action: () => insertTemplate(node.id, t.name),
+            });
+        });
+    }
+    items.push({ label: 'Insert template…', children: tplChildren });
+    if (hasChildren || node.content) {
+        items.push({ label: 'Save as template…', action: () => saveAsTemplate(node.id) });
+    }
     items.push('sep');
 
     // Checkbox — tampilkan sesuai state saat ini (persis ABCLIST)
@@ -2277,6 +2299,43 @@ const TEMPLATES = {
     ],
 };
 
+const STORAGE_KEY_USER_TPL = 'abclist_user_templates';
+
+function getUserTemplates() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY_USER_TPL) || '[]'); } catch { return []; }
+}
+
+function saveUserTemplates(tpls) {
+    localStorage.setItem(STORAGE_KEY_USER_TPL, JSON.stringify(tpls));
+}
+
+function deleteUserTemplate(name) {
+    const tpls = getUserTemplates().filter((t) => t.name !== name);
+    saveUserTemplates(tpls);
+    toast(`Template "${name}" dihapus.`);
+}
+
+function saveAsTemplate(nodeId) {
+    const name = prompt('Nama template:');
+    if (!name || !name.trim()) return;
+    const node = rows.get(nodeId)?.node;
+    if (!node) return;
+    const snapshot = buildTemplateSnapshot(node);
+    const tpls = getUserTemplates().filter((t) => t.name !== name.trim());
+    tpls.push({ name: name.trim(), nodes: snapshot });
+    saveUserTemplates(tpls);
+    toast(`Template "${name.trim()}" disimpan.`);
+}
+
+function buildTemplateSnapshot(node) {
+    const children = flat.filter((f) => f.node.parent_id === node.id).map((f) => f.node);
+    return [{
+        content: node.content || '',
+        bullet: node.bullet || 'bullet',
+        children: children.length ? children.flatMap((c) => buildTemplateSnapshot(c)) : [],
+    }];
+}
+
 async function createItemBranch(parentId, nodes) {
     let pos = 0;
     for (const n of nodes) {
@@ -2293,7 +2352,7 @@ async function createItemBranch(parentId, nodes) {
 }
 
 async function insertTemplate(nodeId, name) {
-    const nodes = TEMPLATES[name];
+    const nodes = TEMPLATES[name] || getUserTemplates().find((t) => t.name === name)?.nodes;
     if (!nodes) return;
     recordUndo();
     try {
@@ -2860,7 +2919,7 @@ function handleEditKey(e, id) {
         } else if (!e.shiftKey && key === 'i') {
             e.preventDefault();
             e.stopPropagation();
-            wrapInline(rows.get(id)?.text, '__', '__');
+            wrapInline(rows.get(id)?.text, '*', '*');
         } else if (!e.shiftKey && key === 'k') {
             e.preventDefault();
             e.stopPropagation();
@@ -3793,7 +3852,7 @@ export function openSearch() {
     openDocSearch();
 }
 
-function openSr() {
+export function openSr() {
     els.srModal.classList.remove('hidden');
     els.srFind.focus();
     els.srFind.select();

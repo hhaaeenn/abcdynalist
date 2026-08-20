@@ -4,7 +4,7 @@ import { initLogin, initRegister } from './auth';
 import { init as initSidebar, togglePane, loadTree, findNode, selectDocument } from './sidebar';
 import { init as initQuickFinder, open as openQuickFinder } from './quick-finder';
 import { init as initBookmarks, open as openBookmarks, close as closeBookmarks } from './bookmarks';
-import { init as initDocument, isDocOpen, openSearch, openDocument, zoomToItem } from './document';
+import { init as initDocument, isDocOpen, openSearch, openDocument, zoomToItem, openSr } from './document';
 import { init as initContextMenu } from './context-menu';
 import { init as initTags } from './tags';
 import { init as initTrashDocs } from './trash-docs';
@@ -69,6 +69,9 @@ if (page === 'login') {
             } else if (key === 'f' && isDocOpen()) {
                 e.preventDefault();
                 openSearch();
+            } else if (key === 'h' && isDocOpen()) {
+                e.preventDefault();
+                openSr();
             }
         });
     }

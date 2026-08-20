@@ -427,6 +427,8 @@ export function init() {
 
     document.getElementById('collapse-pane').addEventListener('click', togglePane);
     document.getElementById('rail-toggle-pane').addEventListener('click', togglePane);
+    const mobileBtn = document.getElementById('mobile-menu-btn');
+    if (mobileBtn) mobileBtn.addEventListener('click', togglePane);
 
     const sortBtn = document.getElementById('sort-docs-btn');
     if (sortBtn) {
@@ -532,8 +534,26 @@ function wireTreeKeyboard() {
     });
 }
 
+let mobileOverlay = null;
+
 export function togglePane() {
-    document.getElementById('file-pane').classList.toggle('hidden');
+    const pane = document.getElementById('file-pane');
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) {
+        pane.classList.toggle('pane-open');
+        if (pane.classList.contains('pane-open')) {
+            if (!mobileOverlay) {
+                mobileOverlay = document.createElement('div');
+                mobileOverlay.className = 'fixed inset-0 bg-black/30 z-30';
+                mobileOverlay.addEventListener('click', togglePane);
+            }
+            document.body.appendChild(mobileOverlay);
+        } else if (mobileOverlay && mobileOverlay.parentNode) {
+            mobileOverlay.remove();
+        }
+    } else {
+        pane.classList.toggle('hidden');
+    }
 }
 
 function parseOutline(o) {
