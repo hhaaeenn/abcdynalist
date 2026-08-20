@@ -259,8 +259,7 @@ export async function openDocument(id) {
     els.statusBar.classList.remove('hidden');
     updateWordCount();
 
-    await loadBookmarkState();
-    await loadItems();
+    await Promise.all([loadBookmarkState(), loadItems()]);
     updateReminderBadge();
     notifyDueReminders();
 }
@@ -2433,39 +2432,42 @@ async function setHeading(id, heading) {
     const rec = rows.get(id);
     if (!rec) return;
     recordUndo();
-    try {
-        await api.patch(`/documents/${docId}/items/${id}`, { heading });
-        rec.node.heading = heading;
+    const prev = rec.node.heading;
+    rec.node.heading = heading;
+    render();
+    api.patch(`/documents/${docId}/items/${id}`, { heading }).catch((e) => {
+        rec.node.heading = prev;
         render();
-    } catch (e) {
         showFailedAlert(e.message);
-    }
+    });
 }
 
 async function setColor(id, color) {
     const rec = rows.get(id);
     if (!rec) return;
     recordUndo();
-    try {
-        await api.patch(`/documents/${docId}/items/${id}`, { color });
-        rec.node.color = color;
+    const prev = rec.node.color;
+    rec.node.color = color;
+    render();
+    api.patch(`/documents/${docId}/items/${id}`, { color }).catch((e) => {
+        rec.node.color = prev;
         render();
-    } catch (e) {
         showFailedAlert(e.message);
-    }
+    });
 }
 
 async function setBullet(id, bullet) {
     const rec = rows.get(id);
     if (!rec) return;
     recordUndo();
-    try {
-        await api.patch(`/documents/${docId}/items/${id}`, { bullet });
-        rec.node.bullet = bullet;
+    const prev = rec.node.bullet;
+    rec.node.bullet = bullet;
+    render();
+    api.patch(`/documents/${docId}/items/${id}`, { bullet }).catch((e) => {
+        rec.node.bullet = prev;
         render();
-    } catch (e) {
         showFailedAlert(e.message);
-    }
+    });
 }
 
 function toggleBulletType(id, type) {
@@ -3029,31 +3031,36 @@ async function enterCreateSiblingSplit(id) {
     const node = rec.node;
     if (hasChildren) {
         const pos = siblingPosition(node) + 1;
-        try {
-            const data = await api.post(`/documents/${docId}/items`, { parent_id: node.parent_id || null, position: pos, content: tail, bullet: node.bullet || defaultBullet });
-            const newId = data.data.id;
-            const newNode = { ...data.data, children: [] };
-            insertNodeLocally(node.parent_id || null, pos, newNode);
-            if (!collapsed.has(id)) {
-                const children = flat.filter((f) => f.node.parent_id === node.id).map((f) => f.node);
-                for (let i = 0; i < children.length; i++) {
-                    await api.post(`/documents/${docId}/items/${children[i].id}/move`, { parent_id: newId, position: i });
-                }
-                const oldParent = findNodeInTree(id);
-                if (oldParent) {
-                    newNode.children = oldParent.children || [];
-                    oldParent.children = [];
-                    newNode.children.forEach((c) => (c.parent_id = newId));
-                }
+        const data = await api.post(`/documents/${docId}/items`, { parent_id: node.parent_id || null, position: pos, content: tail, bullet: node.bullet || defaultBullet });
+        const newId = data.data.id;
+        const newNode = { ...data.data, children: [] };
+        insertNodeLocally(node.parent_id || null, pos, newNode);
+        if (!collapsed.has(id)) {
+            const children = flat.filter((f) => f.node.parent_id === node.id).map((f) => f.node);
+            const oldParent = findNodeInTree(id);
+            if (oldParent) {
+                newNode.children = oldParent.children || [];
+                oldParent.children = [];
+                newNode.children.forEach((c) => (c.parent_id = newId));
             }
             buildFlat();
             applyZoomFilter();
             render();
             selectItem(newId);
             startEdit(newId);
-        } catch (e) {
-            showFailedAlert(e.message);
+            if (children.length) {
+                api.post(`/documents/${docId}/items/${id}/split-children`, { new_id: newId }).catch((e) => {
+                    showFailedAlert(e.message);
+                    loadItems();
+                });
+            }
+            return;
         }
+        buildFlat();
+        applyZoomFilter();
+        render();
+        selectItem(newId);
+        startEdit(newId);
         return;
     }
     await createItemAt(node.parent_id || null, siblingPosition(node) + 1, node.bullet, tail);
@@ -3104,20 +3111,26 @@ async function mergeItems(keepId, dropId, junction) {
     const b = drop.node.content || '';
     const merged = a && b ? `${a.trimEnd()} ${b.trimStart()}` : a + b;
     const children = flat.filter((f) => f.node.parent_id === drop.node.id).map((f) => f.node);
-    try {
-        await api.patch(`/documents/${docId}/items/${keepId}`, { content: merged });
-        const start = childCount(keepId);
-        for (let i = 0; i < children.length; i++) {
-            await api.post(`/documents/${docId}/items/${children[i].id}/move`, { parent_id: keepId, position: start + i });
+    const keepStart = childCount(keepId);
+    children.forEach((c, i) => { c.parent_id = keepId; });
+    keep.node.content = merged;
+    removeNodeLocally(dropId);
+    buildFlat(); applyZoomFilter(); render(); selectItem(keepId); startEdit(keepId);
+    if (junction != null) setCaretAtOffset(rows.get(keepId)?.text, junction);
+    (async () => {
+        try {
+            await api.patch(`/documents/${docId}/items/${keepId}`, { content: merged });
+            if (children.length) {
+                await Promise.all(children.map((c, i) =>
+                    api.post(`/documents/${docId}/items/${c.id}/move`, { parent_id: keepId, position: keepStart + i })
+                ));
+            }
+            await api.delete(`/documents/${docId}/items/${dropId}`);
+        } catch (e) {
+            showFailedAlert(e.message);
+            loadItems();
         }
-        await api.delete(`/documents/${docId}/items/${dropId}`);
-        await loadItems();
-        selectItem(keepId);
-        startEdit(keepId);
-        if (junction != null) setCaretAtOffset(rows.get(keepId)?.text, junction);
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    })();
 }
 
 function setCaretAtOffset(textEl, targetLen) {
@@ -3163,25 +3176,21 @@ async function toggleCheck(id) {
 async function indent(id) {
     if (!id) return toast('Pilih item dulu', 'error');
     recordUndo();
-    try {
-        await api.post(`/documents/${docId}/items/${id}/indent`);
-        await loadItems();
-        selectItem(id);
-    } catch (e) {
+    loadItems();
+    api.post(`/documents/${docId}/items/${id}/indent`).catch((e) => {
         showFailedAlert(e.message);
-    }
+        loadItems();
+    });
 }
 
 async function unindent(id) {
     if (!id) return toast('Pilih item dulu', 'error');
     recordUndo();
-    try {
-        await api.post(`/documents/${docId}/items/${id}/unindent`);
-        await loadItems();
-        selectItem(id);
-    } catch (e) {
+    loadItems();
+    api.post(`/documents/${docId}/items/${id}/unindent`).catch((e) => {
         showFailedAlert(e.message);
-    }
+        loadItems();
+    });
 }
 
 async function deleteItem(id) {
@@ -3207,23 +3216,22 @@ async function deleteChecked() {
     const checkedIds = flat.filter((f) => f.node.checked).map((f) => f.node.id);
     if (!checkedIds.length) return toast('Tidak ada item yang dicentang', 'error');
     recordUndo();
-    try {
-        await api.post(`/documents/${docId}/items-delete-checked`);
-        checkedIds.forEach((id) => {
-            removeNodeLocally(id);
-            collapsed.delete(id);
-            multi.delete(id);
-        });
-        selAnchor = null;
-        selEdge = null;
-        if (selectedId && checkedIds.includes(selectedId)) selectedId = null;
-        buildFlat();
-        applyZoomFilter();
-        render();
-        toast(`${checkedIds.length} item dihapus. Pulihkan dari Trash.`);
-    } catch (e) {
-        showFailedAlert(e.message);
-    }
+    checkedIds.forEach((id) => {
+        removeNodeLocally(id);
+        collapsed.delete(id);
+        multi.delete(id);
+    });
+    selAnchor = null;
+    selEdge = null;
+    if (selectedId && checkedIds.includes(selectedId)) selectedId = null;
+    buildFlat();
+    applyZoomFilter();
+    render();
+    toast(`${checkedIds.length} item dihapus. Pulihkan dari Trash.`);
+    api.post(`/documents/${docId}/items-delete-checked`).catch((e) => {
+        showFailedAlert('Gagal menghapus: ' + e.message);
+        loadItems();
+    });
 }
 
 async function numberChildren() {
@@ -3274,17 +3282,22 @@ async function move(dir) {
     const node = rows.get(selectedId)?.node;
     if (!node) return;
     recordUndo();
-    const group = flat.filter((f) => (f.node.parent_id || null) === (node.parent_id || null)).map((f) => f.node);
+    const parentId = node.parent_id || null;
+    const group = flat.filter((f) => (f.node.parent_id || null) === parentId).map((f) => f.node);
     const i = group.findIndex((s) => s.id === node.id);
     const j = dir === 'up' ? i - 1 : i + 1;
     if (j < 0 || j >= group.length) return toast('Posisi sudah di ujung');
-    try {
-        await api.post(`/documents/${docId}/items/${node.id}/move`, { parent_id: node.parent_id || null, position: j });
-        await loadItems();
-        selectItem(node.id);
-    } catch (e) {
-        showFailedAlert(e.message);
+    [group[i], group[j]] = [group[j], group[i]];
+    const parentNodes = parentId ? findNodeInTree(parentId)?.children : tree;
+    if (parentNodes) {
+        parentNodes.length = 0;
+        group.forEach((n) => parentNodes.push(n));
     }
+    buildFlat(); applyZoomFilter(); render(); selectItem(node.id);
+    api.post(`/documents/${docId}/items/${node.id}/move`, { parent_id: parentId, position: j }).catch((e) => {
+        showFailedAlert(e.message);
+        loadItems();
+    });
 }
 
 function findNodeInTree(id, nodes = tree) {
@@ -4848,13 +4861,10 @@ function wireOutline() {
         const basePos = selRec ? siblingPosition(selRec.node) + 1 : 0;
         recordUndo();
         try {
-            let position = basePos;
-            let firstId = null;
-            for (const line of lines) {
-                const data = await api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line });
-                if (!firstId) firstId = data.data.id;
-                position++;
-            }
+            const results = await Promise.all(lines.map((line, i) =>
+                api.post(`/documents/${docId}/items`, { parent_id: parentId, position: basePos + i, content: line })
+            ));
+            const firstId = results[0]?.data?.id;
             await loadItems();
             if (firstId) selectItem(firstId);
         } catch (err) {
