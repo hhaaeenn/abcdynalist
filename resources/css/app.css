@@ -1591,6 +1591,15 @@ body[data-theme='dark'] #sr-modal label {
 body[data-theme='dark'] .help-head {
     color: #c07a12;
 }
+#help-panel {
+    background: #fafaf9;
+}
+#help-panel .help-panel-header {
+    background: #fafaf9;
+}
+#help-panel .help-panel-header h2 {
+    color: #24221f;
+}
 body[data-theme='dark'] #help-panel {
     background: #1c1b19;
     border-color: rgb(255 255 255 / 0.1);
