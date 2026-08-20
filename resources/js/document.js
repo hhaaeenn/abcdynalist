@@ -1000,7 +1000,13 @@ function splitTailAtCaret(textEl) {
     const holder = document.createElement('div');
     holder.appendChild(tailRange.extractContents());
     const tail = contentFromElement(holder);
-    const restore = () => textEl.append(...Array.from(holder.childNodes));
+    const restore = () => {
+        const nodes = Array.from(holder.childNodes).filter((n) => {
+            if (n.nodeType === Node.ELEMENT_NODE && /^(STRONG|B|EM|I|CODE|DEL|S|STRIKE|MARK|A)$/.test(n.tagName) && !n.textContent.trim()) return false;
+            return true;
+        });
+        textEl.append(...nodes);
+    };
     if (!tail.trim() || isTailOnlyMarkers(tail)) {
         restore();
         return '';
