@@ -4818,15 +4818,17 @@ function wireOutline() {
             e.preventDefault();
             const file = imgItem.getAsFile();
             if (!file) return;
-            let parentId = selectedId || null;
+            const selRec = selectedId ? rows.get(selectedId) : null;
+            let parentId = selRec ? (selRec.node.parent_id || null) : null;
             if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
             const blobUrl = URL.createObjectURL(file);
             recordUndo();
             const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-            const node = { id: tempId, parent_id: parentId, content: `![](${blobUrl})`, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: 0, children: [] };
-            const pos = parentId ? childCount(parentId) : flat.filter((f) => !f.node.parent_id).length;
+            const content = `![](${blobUrl})`;
+            const node = { id: tempId, parent_id: parentId, content, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: 0, children: [] };
+            const pos = selRec ? siblingPosition(selRec.node) + 1 : flat.filter((f) => !f.node.parent_id).length;
             insertNodeLocally(parentId, pos, node);
-            buildFlat(); applyZoomFilter(); render();
+            buildFlat(); applyZoomFilter(); render(); selectItem(tempId);
             const promise = api.post(`/documents/${docId}/items`, { parent_id: parentId, content: node.content, bullet: node.bullet }).then((d) => d.data.id);
             registerPendingItem(tempId, promise);
             promise.then((realId) => {
