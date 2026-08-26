@@ -820,6 +820,8 @@ function buildRow(node, depth) {
                 } catch (err) {
                     showFailedAlert(err.message);
                 }
+            });
+        }
     });
 
     text.addEventListener('input', () => {
