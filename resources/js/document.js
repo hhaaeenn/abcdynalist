@@ -747,9 +747,9 @@ function buildRow(node, depth) {
     });
 
     row.addEventListener('contextmenu', (e) => {
-        if (editing) return;
         e.preventDefault();
         e.stopPropagation();
+        if (editing) { commitEdit(node.id); }
         if (!multi.has(node.id) && multi.size) { clearMulti(); }
         selectItem(node.id);
         openContextAt(e.clientX, e.clientY, menuItemsFor(node));
