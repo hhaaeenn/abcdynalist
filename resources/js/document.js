@@ -812,33 +812,118 @@ function buildRow(node, depth) {
         e.preventDefault();
         const t = e.clipboardData.getData('text/plain');
         if (!t) return;
-        let lines = t.split(/\r?\n/).filter(line => line.trim() !== '');
-        if (!lines.length) return;
-        document.execCommand('insertText', false, lines[0]);
-        if (lines.length > 1) {
-            const parentId = node.id;
-            const pos = (node.children || []).length;
-            const rest = lines.slice(1);
-            commitEdit(node.id).then(async () => {
-                let position = pos;
-                try {
-                    for (const line of rest) {
-                        await api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line });
-                        position++;
-                    }
-                    await loadItems();
-                } catch (err) {
-                    showFailedAlert(err.message);
+        // Parse pasted lines, keeping track of indentation level
+        const rawLines = t.split(/\r?\n/);
+        const parsed = [];
+        for (const raw of rawLines) {
+            if (raw.trim() === '') continue;
+            // Count leading indent (tabs or groups of 2/4 spaces)
+            const leadMatch = raw.match(/^(\t*)([ ]*)/);
+            let indent = 0;
+            if (leadMatch) {
+                indent = (leadMatch[1] || '').length;
+                const spaces = (leadMatch[2] || '').length;
+                if (spaces > 0) indent += Math.floor(spaces / 2) || (spaces > 0 ? 1 : 0);
+            }
+            // Strip common list prefixes (-, *, •, numbered)
+            const content = raw.replace(/^[\t ]+/, '').replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
+            parsed.push({ content, indent });
+        }
+        if (!parsed.length) return;
+        // Single line: just insert into current item at caret
+        if (parsed.length === 1) {
+            document.execCommand('insertText', false, parsed[0].content);
+            return;
+        }
+        // Multi-line paste: first line goes into current item at caret,
+        // remaining lines become siblings after current item (like Dynalist.io)
+        document.execCommand('insertText', false, parsed[0].content);
+        const rest = parsed.slice(1);
+        // Normalize indentation relative to first extra line
+        const baseIndent = rest.reduce((min, p) => Math.min(min, p.indent), Infinity);
+        rest.forEach(p => { p.indent -= baseIndent; });
+        const curNode = node;
+        const curParentId = curNode.parent_id || null;
+        const curPos = siblingPosition(curNode);
+        commitEdit(node.id).then(async () => {
+            recordUndo();
+            // Build a flat list with parent references based on indent
+            const items = [];
+            const stack = [{ id: null, indent: -1 }]; // virtual root
+            for (let i = 0; i < rest.length; i++) {
+                const { content, indent } = rest[i];
+                // Pop stack until we find the parent for this indent level
+                while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+                    stack.pop();
                 }
-            });
-        }
-    });
+                const parentEntry = stack[stack.length - 1];
+                const parentId = parentEntry.id === null ? curParentId : parentEntry.id;
+                const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${i}`;
+                const tmpNode = {
+                    id: tempId,
+                    parent_id: parentId,
+                    content,
+                    note: '',
+                    checked: false,
+                    heading: 0,
+                    color: null,
+                    bullet: curNode.bullet || defaultBullet,
+                    tags: [],
+                    sort_order: 0,
+                    children: [],
+                };
+                items.push({ tmpNode, parentId, indent, tempId });
+                stack.push({ id: tempId, indent });
+            }
+            // Insert root-level items (indent 0) as siblings after current item
+            // Insert child items under their respective temp parents
+            let siblingOffset = 1;
+            for (const item of items) {
+                if (item.parentId === curParentId) {
+                    insertNodeLocally(curParentId, curPos + siblingOffset, item.tmpNode);
+                    siblingOffset++;
+                } else {
+                    const parentNode = findNodeInTree(item.parentId);
+                    if (parentNode) {
+                        parentNode.children = parentNode.children || [];
+                        parentNode.children.push(item.tmpNode);
+                    }
+                }
+            }
             buildFlat(); applyZoomFilter(); render();
-            startEdit(id);
-            rest.forEach((line, i) => {
-                api.post(`/documents/${docId}/items`, { parent_id: parentId, position: pos + i, content: line, bullet: node.bullet || defaultBullet }).catch(() => loadItems());
-            });
-        }
+            // Send API calls to persist all items
+            const idMap = new Map(); // tempId -> realId
+            for (const item of items) {
+                const realParentId = item.parentId === curParentId
+                    ? curParentId
+                    : (idMap.get(item.parentId) || item.parentId);
+                try {
+                    const res = await api.post(`/documents/${docId}/items`, {
+                        parent_id: realParentId,
+                        position: item.parentId === curParentId
+                            ? curPos + items.filter(x => x.parentId === curParentId).indexOf(item) + 1
+                            : undefined,
+                        content: item.tmpNode.content,
+                        bullet: item.tmpNode.bullet,
+                    });
+                    idMap.set(item.tempId, res.data.id);
+                    // Update local node id
+                    item.tmpNode.id = res.data.id;
+                    // Update children that reference this temp id
+                    for (const child of items) {
+                        if (child.tmpNode.parent_id === item.tempId) {
+                            child.tmpNode.parent_id = res.data.id;
+                        }
+                    }
+                } catch (err) {
+                    // Continue with remaining items
+                }
+            }
+            await loadItems();
+            // Select the last created item
+            const lastReal = idMap.get(items[items.length - 1]?.tempId);
+            if (lastReal) selectItem(lastReal);
+        });
     });
 
     text.addEventListener('input', () => {
