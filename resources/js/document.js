@@ -897,26 +897,41 @@ function buildRow(node, depth) {
                 const realParentId = item.parentId === curParentId
                     ? curParentId
                     : (idMap.get(item.parentId) || item.parentId);
+                const reqPromise = api.post(`/documents/${docId}/items`, {
+                    parent_id: realParentId,
+                    position: item.parentId === curParentId
+                        ? curPos + items.filter(x => x.parentId === curParentId).indexOf(item) + 1
+                        : undefined,
+                    content: item.tmpNode.content,
+                    bullet: item.tmpNode.bullet,
+                }).then(res => res.data.id);
+
+                registerPendingItem(item.tempId, reqPromise);
                 try {
-                    const res = await api.post(`/documents/${docId}/items`, {
-                        parent_id: realParentId,
-                        position: item.parentId === curParentId
-                            ? curPos + items.filter(x => x.parentId === curParentId).indexOf(item) + 1
-                            : undefined,
-                        content: item.tmpNode.content,
-                        bullet: item.tmpNode.bullet,
-                    });
-                    idMap.set(item.tempId, res.data.id);
-                    // Update local node id
-                    item.tmpNode.id = res.data.id;
+                    const realId = await reqPromise;
+                    idMap.set(item.tempId, realId);
+                    
+                    // Update local node id and row mapping
+                    item.tmpNode.id = realId;
+                    const rec = rows.get(item.tempId);
+                    if (rec) {
+                        rows.delete(item.tempId);
+                        rows.set(realId, rec);
+                        rec.node = item.tmpNode;
+                        if (rec.row) rec.row.dataset.id = realId;
+                    }
+                    if (selectedId === item.tempId) selectedId = realId;
+                    
                     // Update children that reference this temp id
                     for (const child of items) {
                         if (child.tmpNode.parent_id === item.tempId) {
-                            child.tmpNode.parent_id = res.data.id;
+                            child.tmpNode.parent_id = realId;
                         }
                     }
                 } catch (err) {
-                    // Continue with remaining items
+                    // ignore error
+                } finally {
+                    unregisterPendingItem(item.tempId);
                 }
             }
             await loadItems();
