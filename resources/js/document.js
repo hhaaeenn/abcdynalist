@@ -819,12 +819,20 @@ function buildRow(node, depth) {
             const parentId = node.id;
             const pos = (node.children || []).length;
             const rest = lines.slice(1);
-            recordUndo();
-            rest.forEach((line, i) => {
-                const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${i}`;
-                const tmpNode = { id: tmpId, parent_id: parentId, content: line, note: '', checked: false, heading: 0, color: null, bullet: node.bullet || defaultBullet, tags: [], sort_order: pos + i, children: [] };
-                insertNodeLocally(parentId, pos + i, tmpNode);
+            commitEdit(node.id).then(async () => {
+                let position = pos;
+                try {
+                    for (const line of rest) {
+                        await api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line });
+                        position++;
+                    }
+                    await loadItems();
+                } catch (err) {
+                    showFailedAlert(err.message);
+                }
             });
+        }
+    });
             buildFlat(); applyZoomFilter(); render();
             startEdit(id);
             rest.forEach((line, i) => {
