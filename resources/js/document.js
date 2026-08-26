@@ -812,13 +812,12 @@ function buildRow(node, depth) {
         e.preventDefault();
         const t = e.clipboardData.getData('text/plain');
         if (!t) return;
-        let lines = t.split(/\r?\n/);
-        while (lines.length && lines[lines.length - 1] === '') lines.pop();
+        let lines = t.split(/\r?\n/).filter(line => line.trim() !== '');
         if (!lines.length) return;
         document.execCommand('insertText', false, lines[0]);
         if (lines.length > 1) {
-            const parentId = node.parent_id || null;
-            const pos = siblingPosition(node) + 1;
+            const parentId = node.id;
+            const pos = (node.children || []).length;
             const rest = lines.slice(1);
             recordUndo();
             rest.forEach((line, i) => {
@@ -4932,13 +4931,12 @@ function wireOutline() {
         const t = e.clipboardData.getData('text/plain');
         if (!t) return;
         e.preventDefault();
-        let lines = t.split(/\r?\n/);
-        while (lines.length && lines[lines.length - 1] === '') lines.pop();
+        let lines = t.split(/\r?\n/).filter(line => line.trim() !== '');
         if (!lines.length) return;
         const selRec = selectedId ? rows.get(selectedId) : null;
-        let parentId = selRec ? (selRec.node.parent_id || null) : null;
+        let parentId = selRec ? selRec.node.id : null;
         if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
-        const basePos = selRec ? siblingPosition(selRec.node) + 1 : 0;
+        const basePos = parentId ? (selRec.node.children || []).length : 0;
         recordUndo();
         try {
             const results = await Promise.all(lines.map((line, i) =>
