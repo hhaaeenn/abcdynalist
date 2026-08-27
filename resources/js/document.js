@@ -935,113 +935,47 @@ function buildRow(node, depth) {
         let curParentId = curNode.parent_id || null;
         if (curParentId && String(curParentId).startsWith('tmp-')) curParentId = null;
         const curPos = siblingPosition(curNode);
-        commitEdit(node.id).then(async () => {
-            recordUndo();
-            // Build a flat list with parent references based on indent
-            const items = [];
-            const stack = [{ id: null, indent: -1 }]; // virtual root
-            for (let i = 0; i < rest.length; i++) {
-                const { content, indent } = rest[i];
-                // Pop stack until we find the parent for this indent level
-                while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-                    stack.pop();
-                }
-                const parentEntry = stack[stack.length - 1];
-                const parentId = parentEntry.id === null ? curParentId : parentEntry.id;
-                const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${i}`;
-                const tmpNode = {
-                    id: tempId,
-                    parent_id: parentId,
-                    content,
-                    note: '',
-                    checked: false,
-                    heading: 0,
-                    color: null,
-                    bullet: curNode.bullet || defaultBullet,
-                    tags: [],
-                    sort_order: 0,
-                    children: [],
-                };
-                items.push({ tmpNode, parentId, indent, tempId });
-                stack.push({ id: tempId, indent });
-            }
-            // Insert root-level items (indent 0) as siblings after current item
-            // Insert child items under their respective temp parents
-            let siblingOffset = 1;
-            for (const item of items) {
-                if (item.parentId === curParentId) {
-                    insertNodeLocally(curParentId, curPos + siblingOffset, item.tmpNode);
-                    siblingOffset++;
-                } else {
-                    const parentNode = findNodeInTree(item.parentId);
-                    if (parentNode) {
-                        parentNode.children = parentNode.children || [];
-                        parentNode.children.push(item.tmpNode);
-                    }
-                }
-            }
-            buildFlat(); applyZoomFilter(); render();
-            // Send API calls to persist all items
-            const idMap = new Map(); // tempId -> realId
-            const failed = new Set(); // track tempIds whose API creation failed
-            for (const item of items) {
-                // Skip children whose parent failed to create
-                if (failed.has(item.parentId)) {
-                    failed.add(item.tempId);
-                    continue;
-                }
-                const realParentId = item.parentId === curParentId
-                    ? curParentId
-                    : idMap.get(item.parentId);
-                // If parent wasn't resolved (and isn't the current node), skip
-                if (!realParentId && item.parentId !== curParentId) {
-                    failed.add(item.tempId);
-                    continue;
-                }
-                const reqPromise = api.post(`/documents/${docId}/items`, {
-                    parent_id: realParentId,
-                    position: item.parentId === curParentId
-                        ? curPos + items.filter(x => x.parentId === curParentId).indexOf(item) + 1
-                        : undefined,
-                    content: item.tmpNode.content,
-                    bullet: item.tmpNode.bullet,
-                }).then(res => res.data.id);
 
-                registerPendingItem(item.tempId, reqPromise);
-                try {
-                    const realId = await reqPromise;
-                    idMap.set(item.tempId, realId);
-                    
-                    // Update local node id and row mapping
-                    item.tmpNode.id = realId;
-                    const rec = rows.get(item.tempId);
-                    if (rec) {
-                        rows.delete(item.tempId);
-                        rows.set(realId, rec);
-                        rec.node = item.tmpNode;
-                        if (rec.row) rec.row.dataset.id = realId;
-                    }
-                    if (selectedId === item.tempId) selectedId = realId;
-                    reparentTempChildren(item.tempId, realId);
-
-                    // Update children that reference this temp id
-                    for (const child of items) {
-                        if (child.tmpNode.parent_id === item.tempId) {
-                            child.tmpNode.parent_id = realId;
-                        }
-                    }
-                } catch (err) {
-                    console.error('Paste: failed to create item:', err);
-                    failed.add(item.tempId);
-                } finally {
-                    unregisterPendingItem(item.tempId);
-                }
+        // Susun snapshot bercabang dari daftar {content, indent} yang flat,
+        // lalu insert LOKAL & render dulu (instan) — baru simpan ke server
+        // di background, tiap cabang top-level diparalelkan.
+        const buildSnapshotTree = (lines) => {
+            const root = { children: [] };
+            const stack = [{ indent: -1, node: root }];
+            for (const { content, indent } of lines) {
+                while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
+                const snap = { content, children: [] };
+                stack[stack.length - 1].node.children.push(snap);
+                stack.push({ indent, node: snap });
             }
-            await loadItems();
-            // Select the last created item
-            const lastReal = idMap.get(items[items.length - 1]?.tempId);
-            if (lastReal) selectItem(lastReal);
-        });
+            return root.children;
+        };
+        const snapshots = buildSnapshotTree(rest);
+
+        recordUndo();
+        const tempNodes = snapshots.map((snap) => buildTempNodeFromSnapshot(snap, curParentId));
+        tempNodes.forEach((n, i) => insertNodeLocally(curParentId, curPos + 1 + i, n));
+        buildFlat();
+        applyZoomFilter();
+        render();
+        const lastTop = tempNodes[tempNodes.length - 1];
+        if (lastTop) selectItem(lastTop.id);
+
+        (async () => {
+            try {
+                await commitEdit(node.id);
+            } catch {
+                // commitEdit sudah menangani error & alert-nya sendiri
+            }
+            try {
+                await Promise.all(
+                    tempNodes.map((n, i) => persistPastedNode(n, curParentId, curPos + 1 + i))
+                );
+            } catch (e) {
+                showFailedAlert('Sebagian item gagal disimpan: ' + e.message);
+                loadItems();
+            }
+        })();
     });
 
     text.addEventListener('input', () => {
@@ -5399,37 +5333,35 @@ function wireOutline() {
         if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
         const baseIndent = parsed.reduce((min, p) => Math.min(min, p.indent), Infinity);
         parsed.forEach(p => { p.indent -= baseIndent; });
-        const items = [];
-        const stack = [{ id: parentId, indent: -1 }];
-        for (const { content, indent } of parsed) {
-            while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
-            const parentEntry = stack[stack.length - 1];
-            items.push({ content, parentId: parentEntry.id });
-            stack.push({ id: `tmp-${items.length}`, indent });
-        }
-        recordUndo();
-        try {
-            const idMap = new Map();
-            const failed = new Set();
-            for (let i = 0; i < items.length; i++) {
-                const item = items[i];
-                const tempKey = `tmp-${i}`;
-                if (failed.has(item.parentId)) { failed.add(tempKey); continue; }
-                const realParentId = idMap.get(item.parentId) || item.parentId;
-                if (!realParentId && item.parentId !== parentId) { failed.add(tempKey); continue; }
-                try {
-                    const res = await api.post(`/documents/${docId}/items`, { parent_id: realParentId, content: item.content });
-                    idMap.set(tempKey, res.data.id);
-                } catch (err) {
-                    console.error('Outline paste: failed to create item:', err);
-                    failed.add(tempKey);
-                }
+
+        const buildSnapshotTree = (lines) => {
+            const root = { children: [] };
+            const stack = [{ indent: -1, node: root }];
+            for (const { content, indent } of lines) {
+                while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
+                const snap = { content, children: [] };
+                stack[stack.length - 1].node.children.push(snap);
+                stack.push({ indent, node: snap });
             }
-            await loadItems();
-            const firstId = idMap.get('tmp-0');
-            if (firstId) selectItem(firstId);
+            return root.children;
+        };
+        const snapshots = buildSnapshotTree(parsed);
+        const pos = parentId ? childCount(parentId) : flat.filter((f) => !f.node.parent_id).length;
+
+        recordUndo();
+        const tempNodes = snapshots.map((snap) => buildTempNodeFromSnapshot(snap, parentId));
+        tempNodes.forEach((n, i) => insertNodeLocally(parentId, pos + i, n));
+        buildFlat();
+        applyZoomFilter();
+        render();
+        const firstTop = tempNodes[0];
+        if (firstTop) selectItem(firstTop.id);
+
+        try {
+            await Promise.all(tempNodes.map((n, i) => persistPastedNode(n, parentId, pos + i)));
         } catch (err) {
-            showFailedAlert(err.message);
+            showFailedAlert('Sebagian item gagal disimpan: ' + err.message);
+            loadItems();
         }
     });
 
