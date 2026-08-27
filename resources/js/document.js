@@ -12,6 +12,17 @@ import 'katex/dist/katex.min.css';
 
 let docId = null;
 let tree = [];
+
+// Pemetaan tempId -> realId saat item yang baru dibuat / dipaste berhasil
+// tersimpan ke server, agar urutan operasi berikutnya (delete, dsb.) memakai
+// ID asli dan tidak mengirim tempId basi yang berujung 404.
+const idAliases = new Map();
+function rememberId(tempId, realId) {
+    if (realId && realId !== tempId) idAliases.set(tempId, realId);
+}
+function resolveItemId(id) {
+    return id ? (idAliases.get(id) || id) : id;
+}
 let flat = [];
 let selectedId = null;
 let editing = false;
@@ -1322,7 +1333,7 @@ async function bulkComplete(checked) {
 }
 
 async function bulkDelete() {
-    const ids = [...multi];
+    const ids = [...multi].map(resolveItemId);
     if (!ids.length) return;
     recordUndo();
     const allIds = new Set(ids);
@@ -1355,14 +1366,8 @@ async function bulkDelete() {
     const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
     if (target) selectItem(target.node.id);
     try {
-        const results = await Promise.allSettled(ids.map(id => api.delete(`/documents/${docId}/items/${id}`)));
-        const errs = results.filter(r => r.status === 'rejected');
-        if (errs.length) {
-            showFailedAlert(`${errs.length} item gagal dihapus`);
-            loadItems();
-        } else {
-            toast(`${ids.length} item dihapus. Pulihkan dari Trash.`);
-        }
+        await api.post(`/documents/${docId}/items-delete-batch`, { ids: [...allIds] });
+        toast(`${allIds.size} item dihapus. Pulihkan dari Trash.`);
     } catch (e) {
         showFailedAlert('Gagal menghapus: ' + e.message);
         loadItems();
@@ -2205,6 +2210,12 @@ async function persistPastedNode(node, parentId, position) {
     const realId = await promise;
     node.id = realId;
     node.parent_id = parentId;
+    rememberId(tempId, realId);
+    if (selectedId === tempId) selectedId = realId;
+    if (multi.has(tempId)) { multi.delete(tempId); multi.add(realId); }
+    if (selAnchor === tempId) selAnchor = realId;
+    if (selEdge === tempId) selEdge = realId;
+    if (collapsed.has(tempId)) { collapsed.delete(tempId); collapsed.add(realId); }
     const rec = rows.get(tempId);
     if (rec) {
         rows.delete(tempId);
@@ -2248,6 +2259,10 @@ async function pasteSnapshots(snapshots, id, mode) {
             for (let i = 0; i < tempNodes.length; i++) {
                 await persistPastedNode(tempNodes[i], parentId, pos + i);
             }
+            buildFlat();
+            applyZoomFilter();
+            render();
+            refreshHighlights();
         } catch (e) {
             showFailedAlert('Gagal menyimpan item yang di-paste: ' + e.message);
             loadItems();
@@ -3645,6 +3660,7 @@ async function unindent(id) {
 }
 
 async function deleteItem(id) {
+    id = resolveItemId(id);
     if (!id) return toast('Pilih item dulu', 'error');
     recordUndo();
     const idx = flat.findIndex((f) => f.node.id === id);
@@ -3853,6 +3869,12 @@ async function createItemAt(parentId, position, bullet, content) {
     try {
         const realId = await promise;
         node.id = realId;
+        rememberId(tempId, realId);
+        if (selectedId === tempId) selectedId = realId;
+        if (multi.has(tempId)) { multi.delete(tempId); multi.add(realId); }
+        if (selAnchor === tempId) selAnchor = realId;
+        if (selEdge === tempId) selEdge = realId;
+        if (collapsed.has(tempId)) { collapsed.delete(tempId); collapsed.add(realId); }
         const rec = rows.get(tempId);
         if (rec) {
             rows.delete(tempId);
@@ -3860,7 +3882,6 @@ async function createItemAt(parentId, position, bullet, content) {
             rec.node = node;
             if (rec.row) rec.row.dataset.id = realId;
         }
-        if (selectedId === tempId) selectedId = realId;
         unregisterPendingItem(tempId);
         reparentTempChildren(tempId, realId);
         return realId;

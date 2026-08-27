@@ -75,6 +75,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/documents/{documentId}/items/{id}/deduplicate-children', [ItemController::class, 'deduplicateChildren']);
     Route::post('/documents/{documentId}/items-restore', [ItemController::class, 'restore']);
     Route::post('/documents/{documentId}/items-delete-checked', [ItemController::class, 'deleteChecked']);
+    Route::post('/documents/{documentId}/items-delete-batch', [ItemController::class, 'deleteBatch']);
     Route::post('/documents/{documentId}/items-search', [ItemController::class, 'search']);
 
     Route::get('/bookmarks', [BookmarkController::class, 'index']);

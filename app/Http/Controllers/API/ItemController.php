@@ -655,6 +655,60 @@ class ItemController extends Controller
         ]);
     }
 
+    public function deleteBatch(Request $request, $documentId)
+    {
+        $user = $request->user();
+
+        $document = Document::where('user_id', $user->id)->find($documentId);
+
+        if (! $document) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Document not found',
+            ], 404);
+        }
+
+        $data = $request->validate([
+            'ids' => ['required', 'array'],
+            'ids.*' => ['required', 'string'],
+        ]);
+
+        $ids = array_values(array_unique($data['ids']));
+
+        $existing = Item::where('document_id', $documentId)
+            ->where('user_id', $user->id)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->map(fn ($v) => (string) $v)
+            ->all();
+
+        if (empty($existing)) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'No items to delete',
+                'deleted' => 0,
+            ]);
+        }
+
+        $idsToDelete = $existing;
+        foreach ($existing as $existingId) {
+            $idsToDelete = array_merge($idsToDelete, $this->collectDescendantIds($documentId, $existingId));
+        }
+        $idsToDelete = array_values(array_unique($idsToDelete));
+
+        Item::where('document_id', $documentId)->whereIn('id', $idsToDelete)->delete();
+
+        Bookmark::where('target_type', 'item')->whereIn('target_id', $idsToDelete)->delete();
+
+        $this->reorderAllSiblings($documentId);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Items deleted',
+            'deleted' => count($idsToDelete),
+        ]);
+    }
+
     public function trashed(Request $request, $documentId)
     {
         $user = $request->user();
