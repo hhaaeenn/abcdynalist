@@ -386,7 +386,7 @@ function saveUiState() {
 
 function parseClipboardItems(clipboardData) {
     const html = clipboardData.getData('text/html');
-    console.log('[paste-debug] html length:', html?.length || 0, 'plain length:', clipboardData.getData('text/plain')?.length || 0);
+    const text = clipboardData.getData('text/plain');
     if (html) {
         try {
             const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -429,16 +429,19 @@ function parseClipboardItems(clipboardData) {
                     walk(child, 0);
                 }
             }
-            console.log('[paste-debug] html items parsed:', items.length, 'body.children:', body.children.length);
+            // HTML membawa struktur bertingkat (indent > 0) = sumber hierarki terpercaya.
+            if (items.length && items.some((i) => i.indent > 0)) return items;
+            // HTML datar (semua indent 0): biasanya teks polos berindentasi disalin sebagai
+            // deretan <div>/<p> tanpa nesting <ul>/<li>. Dalam kasus itu, interpretasikan
+            // indentasi spasi/tab dari text/plain agar hierarki tetap terbentuk (persis Dynalist).
+            const plainResult = parsePlainTextItems(text);
+            if (plainResult.length && plainResult.some((i) => i.indent > 0)) return plainResult;
             if (items.length) return items;
-        } catch (e) { console.log('[paste-debug] html parse threw:', e); /* fall through to plain text */ }
+            if (plainResult.length) return plainResult;
+        } catch (e) { /* fall through to plain text */ }
     }
-    const text = clipboardData.getData('text/plain');
-    console.log('[paste-debug] falling back to plain text, length:', text?.length || 0);
     if (!text) return [];
-    const result = parsePlainTextItems(text);
-    console.log('[paste-debug] plain text items parsed:', result.length);
-    return result;
+    return parsePlainTextItems(text);
 }
 
 function parsePlainTextItems(text) {
@@ -3202,7 +3205,7 @@ function handleEditKey(e, id) {
         } else if (!e.shiftKey && key === 'i') {
             e.preventDefault();
             e.stopPropagation();
-            wrapInline(rows.get(id)?.text, '*', '*');
+            wrapInline(rows.get(id)?.text, '__', '__');
         } else if (!e.shiftKey && key === 'k') {
             e.preventDefault();
             e.stopPropagation();
@@ -5442,9 +5445,6 @@ function wireOutline() {
             } else if (key === 'a') {
                 e.preventDefault();
                 selectUpward();
-            } else if (key === 'enter' && e.shiftKey) {
-                e.preventDefault();
-                addSiblingAbove();
             } else if (key === 'enter') {
                 e.preventDefault();
                 toggleCheck(selectedId);
@@ -5510,11 +5510,15 @@ function wireOutline() {
                 e.preventDefault();
                 cutItems();
             } else if (key === 'v' && e.shiftKey) {
-                e.preventDefault();
-                if (itemClipboard) pasteAsSibling(selectedId);
+                if (itemClipboard) {
+                    e.preventDefault();
+                    pasteAsSibling(selectedId);
+                }
             } else if (key === 'v' && !e.shiftKey) {
-                e.preventDefault();
-                if (itemClipboard) pasteAsChild(selectedId);
+                if (itemClipboard) {
+                    e.preventDefault();
+                    pasteAsChild(selectedId);
+                }
             } else if (key === 'd' && e.shiftKey) {
                 e.preventDefault();
                 duplicateItem(selectedId);

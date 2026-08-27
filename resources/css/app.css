@@ -541,10 +541,6 @@ input:focus-visible,
     transition: background-color 0.1s ease, box-shadow 0.1s ease, opacity 0.12s ease;
 }
 
-.item-row:hover {
-    background: rgb(0 0 0 / 0.04);
-}
-
 /* Garis panduan indent vertikal (khas ABCLIST) — DOM elements */
 .item-guide {
     position: absolute;
@@ -656,9 +652,7 @@ body[data-theme='dark'] .is-checked-text {
 }
 
 .item-text:focus {
-    background: #fff;
-    box-shadow: 0 0 0 1.5px rgb(192 122 18 / 0.45);
-    border-radius: 4px;
+    background: transparent;
     outline: none;
 }
 

@@ -32,6 +32,39 @@ class Document extends Model
         'sort_order' => 'integer',
     ];
 
+    protected $hidden = [
+        'share_token',
+        'publish_token',
+        'publish_password',
+    ];
+
+    protected $appends = [
+        'share_enabled',
+        'share_url',
+        'publish_enabled',
+        'publish_url',
+    ];
+
+    public function getShareEnabledAttribute()
+    {
+        return ! empty($this->share_token);
+    }
+
+    public function getShareUrlAttribute()
+    {
+        return $this->share_token ? url('/share/'.$this->share_token) : null;
+    }
+
+    public function getPublishEnabledAttribute()
+    {
+        return ! empty($this->publish_token);
+    }
+
+    public function getPublishUrlAttribute()
+    {
+        return $this->publish_token ? url('/publish/'.$this->publish_token) : null;
+    }
+
     public function user()
     {
         return $this->belongsTo(User::class);

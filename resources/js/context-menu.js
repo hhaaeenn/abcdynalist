@@ -271,10 +271,18 @@ export function openShareDialog(node) {
     shareNode = node;
     Swal.fire({
         title: 'Bagikan dokumen',
-        html: '<div id="share-body" class="text-left">Memuat…</div>',
+        html: '<div id="share-body" class="text-left"></div>',
         showConfirmButton: false,
         showCloseButton: true,
-        didOpen: renderShareBody,
+        didOpen: () => {
+            const body = document.getElementById('share-body');
+            if (!body) return;
+            body.innerHTML = shareHtml({
+                enabled: node.share_enabled ?? !!node.share_token,
+                share_url: node.share_url || (node.share_token ? `/share/${node.share_token}` : null),
+            });
+            wireShareButtons();
+        },
     });
 }
 
