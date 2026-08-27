@@ -47,17 +47,38 @@ export function unregisterPendingItem(tempId) {
     pendingItems.delete(tempId);
 }
 
+async function resolvePendingId(value) {
+    if (typeof value !== 'string' || !pendingItems.has(value)) return value;
+    return pendingItems.get(value);
+}
+
+async function resolvePendingBody(body) {
+    if (!body || typeof body !== 'object' || body instanceof FormData) return body;
+    if (Array.isArray(body)) return Promise.all(body.map((value) => resolvePendingBody(value)));
+
+    const resolved = { ...body };
+    for (const [key, value] of Object.entries(resolved)) {
+        if (typeof value === 'string' && /(?:^|_)id$/i.test(key)) {
+            resolved[key] = await resolvePendingId(value);
+        } else if (value && typeof value === 'object') {
+            resolved[key] = await resolvePendingBody(value);
+        }
+    }
+    return resolved;
+}
+
 export async function request(path, { method = 'GET', body } = {}) {
     if (pendingItems.size) {
         const segs = path.split('/');
         for (let i = 0; i < segs.length; i++) {
             if (i > 0 && (segs[i - 1] === 'items' || segs[i - 1] === 'documents') && pendingItems.has(segs[i])) {
-                const real = await pendingItems.get(segs[i]).catch(() => null);
-                if (real && real !== segs[i]) segs[i] = real;
+                const real = await resolvePendingId(segs[i]);
+                if (real !== segs[i]) segs[i] = real;
             }
         }
         path = segs.join('/');
     }
+    body = await resolvePendingBody(body);
     const headers = { Accept: 'application/json' };
     const isFormData = body instanceof FormData;
     if (body && !isFormData) headers['Content-Type'] = 'application/json';
