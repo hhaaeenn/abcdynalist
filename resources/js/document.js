@@ -3092,6 +3092,38 @@ function handleEditKey(e, id) {
             return;
         }
     }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && hasCrossItemSelection()) {
+        e.preventDefault();
+        e.stopPropagation();
+        const info = getCrossItemSelectionInfo();
+        commitEdit(id).then(async () => {
+            const result = await deleteCrossItemSelection(info);
+            if (result) {
+                const rec = rows.get(result.firstId);
+                if (rec) {
+                    const txt = rec.node.content || '';
+                    rec.node.content = txt.slice(0, result.caretOffset) + e.key + txt.slice(result.caretOffset);
+                    rec.text.innerHTML = contentHtml(rec.node.content);
+                    applyTagColors(rec.text);
+                    wireInlineImages(rec.text, result.firstId);
+                    selectItem(result.firstId);
+                    editing = true;
+                    unrenderMath(rec.text);
+                    rec.text.focus();
+                    setCaretAtOffset(rec.text, result.caretOffset + 1);
+                    (async () => {
+                        try {
+                            await api.patch(`/documents/${docId}/items/${result.firstId}`, { content: rec.node.content });
+                        } catch (err) {
+                            showFailedAlert(err.message);
+                            loadItems();
+                        }
+                    })();
+                }
+            }
+        });
+        return;
+    }
     if (e.ctrlKey) {
         const key = e.key.toLowerCase();
         if (key === 'enter' && e.shiftKey) {
@@ -3235,6 +3267,16 @@ function handleEditKey(e, id) {
         e.stopPropagation();
         cancelEdit(id);
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (hasCrossItemSelection()) {
+            e.preventDefault();
+            e.stopPropagation();
+            const info = getCrossItemSelectionInfo();
+            commitEdit(id).then(async () => {
+                const result = await deleteCrossItemSelection(info);
+                if (result) selectItem(result.firstId);
+            });
+            return;
+        }
         const recText = rows.get(id)?.text;
         const img = recText ? imageAtCaret(recText, e.key === 'Backspace' ? 'backspace' : 'delete') : null;
         if (img) {
@@ -3410,6 +3452,80 @@ async function mergeItems(keepId, dropId, junction) {
             loadItems();
         }
     })();
+}
+
+function getCrossItemSelectionInfo() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    let startItem = null;
+    let endItem = null;
+    for (const [id, rec] of rows) {
+        if (rec.text.contains(range.startContainer)) startItem = { id, textEl: rec.text };
+        if (rec.text.contains(range.endContainer)) endItem = { id, textEl: rec.text };
+    }
+    if (!startItem || !endItem || startItem.id === endItem.id) return null;
+    const visibleIds = flat.map((f) => f.node.id);
+    const si = visibleIds.indexOf(startItem.id);
+    const ei = visibleIds.indexOf(endItem.id);
+    if (si === -1 || ei === -1) return null;
+    const first = si <= ei ? startItem : endItem;
+    const last = si <= ei ? endItem : startItem;
+    const r1 = document.createRange();
+    r1.setStart(first.textEl, 0);
+    r1.setEnd(si <= ei ? range.startContainer : range.endContainer, si <= ei ? range.startOffset : range.endOffset);
+    const textBefore = r1.toString();
+    const r2 = document.createRange();
+    r2.setStart(si <= ei ? range.endContainer : range.startContainer, si <= ei ? range.endOffset : range.startOffset);
+    r2.setEnd(last.textEl, last.textEl.childNodes.length);
+    const textAfter = r2.toString();
+    const middleIds = [];
+    const firstIdx = visibleIds.indexOf(first.id);
+    const lastIdx = visibleIds.indexOf(last.id);
+    for (let i = firstIdx + 1; i <= lastIdx; i++) middleIds.push(visibleIds[i]);
+    return { first, last, textBefore, textAfter, middleIds, caretOffset: textBefore.length };
+}
+
+async function deleteCrossItemSelection(preInfo) {
+    const info = preInfo || getCrossItemSelectionInfo();
+    if (!info) return;
+    const { first, last, textBefore, textAfter, middleIds, caretOffset } = info;
+    const merged = textBefore + textAfter;
+    recordUndo();
+    const keepRec = rows.get(first.id);
+    if (!keepRec) return;
+    keepRec.node.content = merged;
+    const idsToRemove = [first.id === last.id ? null : last.id, ...middleIds].filter(Boolean);
+    const uniqueRemove = [...new Set(idsToRemove)].filter((id) => id !== first.id);
+    uniqueRemove.forEach((id) => {
+        removeNodeLocally(id);
+        collapsed.delete(id);
+    });
+    buildFlat();
+    applyZoomFilter();
+    render();
+    const freshRec = rows.get(first.id);
+    if (freshRec) {
+        selectItem(first.id);
+        editing = true;
+        unrenderMath(freshRec.text);
+        freshRec.text.focus();
+        setCaretAtOffset(freshRec.text, caretOffset);
+    }
+    (async () => {
+        try {
+            await api.patch(`/documents/${docId}/items/${first.id}`, { content: merged });
+            if (uniqueRemove.length) {
+                await Promise.allSettled(uniqueRemove.map((id) =>
+                    api.delete(`/documents/${docId}/items/${id}`)
+                ));
+            }
+        } catch (e) {
+            showFailedAlert(e.message);
+            loadItems();
+        }
+    })();
+    return { firstId: first.id, caretOffset };
 }
 
 function setCaretAtOffset(textEl, targetLen) {
