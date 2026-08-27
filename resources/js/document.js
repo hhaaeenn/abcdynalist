@@ -1976,6 +1976,7 @@ async function zoomInto(id) {
     selectedId = id;
     await loadItems();
     selectItem(id);
+    scrollFocusCenter(id);
     updateZoomBar();
     saveUiState();
 }
@@ -2003,8 +2004,16 @@ async function zoomOutLevel() {
     selectedId = parent.id;
     await loadItems();
     selectItem(parent.id);
+    scrollFocusCenter(parent.id);
     updateZoomBar();
     saveUiState();
+}
+
+// Auto-scroll item yang di-zoom ke tengah viewport (mirip Dynalist) agar fokus
+// langsung terlihat jelas saat berpindah level zoom.
+function scrollFocusCenter(id) {
+    const rec = rows.get(id);
+    if (rec && rec.row) rec.row.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 function collapseAll() {
@@ -3183,8 +3192,8 @@ function handleEditKey(e, id) {
         } else if (key === 'enter') {
             e.preventDefault();
             e.stopPropagation();
-            // Ctrl+Enter = tandai selesai / batal (berlaku utk semua item, persis ABCLIST)
-            commitEdit(id).then(() => toggleCheck(id));
+            // Ctrl+Enter = tandai selesai (mark as done, persis Dynalist)
+            commitEdit(id).then(() => markAsDone(id));
         } else if (key === 'c' && !e.shiftKey) {
             if (hasTextSelectionInside(id) || hasCrossItemSelection()) return;
             e.preventDefault();
@@ -3619,6 +3628,23 @@ async function toggleCheck(id) {
     render();
     api.patch(`/documents/${docId}/items/${id}`, { checked: next }).catch((e) => {
         rec.node.checked = !next;
+        render();
+        showFailedAlert(e.message);
+    });
+}
+
+// Persis Dynalist: Ctrl+Enter = "mark as done" → hanya menandai SELESAI item
+// checklist yang belum dicentang, tanpa berisiko membatalkan centang.
+async function markAsDone(id) {
+    const rec = rows.get(id);
+    if (!rec) return;
+    const node = rec.node;
+    if ((node.bullet || 'bullet') !== 'checklist' || node.checked) return;
+    recordUndo();
+    node.checked = true;
+    render();
+    api.patch(`/documents/${docId}/items/${id}`, { checked: true }).catch((e) => {
+        node.checked = false;
         render();
         showFailedAlert(e.message);
     });
@@ -5476,7 +5502,8 @@ function wireOutline() {
                 selectUpward();
             } else if (key === 'enter') {
                 e.preventDefault();
-                toggleCheck(selectedId);
+                // Ctrl+Enter = mark as done (hanya menandai selesai, persis Dynalist)
+                markAsDone(selectedId);
             } else if (e.shiftKey && key === 'e') {
                 e.preventDefault();
                 e.stopPropagation();
