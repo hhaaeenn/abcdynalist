@@ -5051,22 +5051,55 @@ function wireOutline() {
         const t = e.clipboardData.getData('text/plain');
         if (!t) return;
         e.preventDefault();
-        let lines = t.split(/\r?\n/).filter(line => line.trim() !== '');
-        if (!lines.length) return;
+        const rawLines = t.split(/\r?\n/);
+        const parsed = [];
+        for (const raw of rawLines) {
+            if (raw.trim() === '') continue;
+            const leadMatch = raw.match(/^(\t*)([ ]*)/);
+            let indent = 0;
+            if (leadMatch) {
+                indent = (leadMatch[1] || '').length;
+                const spaces = (leadMatch[2] || '').length;
+                if (spaces > 0) indent += Math.floor(spaces / 2) || 1;
+            }
+            const content = raw.replace(/^[\t ]+/, '').replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
+            parsed.push({ content, indent });
+        }
+        if (!parsed.length) return;
         const selRec = selectedId ? rows.get(selectedId) : null;
         let parentId = selRec ? selRec.node.id : null;
         if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
-        const basePos = parentId ? (selRec.node.children || []).length : 0;
+        const baseIndent = parsed.reduce((min, p) => Math.min(min, p.indent), Infinity);
+        parsed.forEach(p => { p.indent -= baseIndent; });
+        const items = [];
+        const stack = [{ id: parentId, indent: -1 }];
+        for (const { content, indent } of parsed) {
+            while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
+            const parentEntry = stack[stack.length - 1];
+            items.push({ content, parentId: parentEntry.id });
+            stack.push({ id: `tmp-${items.length}`, indent });
+        }
         recordUndo();
         try {
-            const results = await Promise.allSettled(lines.map((line, i) =>
-                api.post(`/documents/${docId}/items`, { parent_id: parentId, position: basePos + i, content: line })
-            ));
-            const errs = results.filter(r => r.status === 'rejected');
-            if (errs.length) showFailedAlert(`${errs.length} of ${lines.length} items failed: ${errs[0].reason?.message || 'unknown error'}`);
+            const idMap = new Map();
+            const failed = new Set();
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                const tempKey = `tmp-${i}`;
+                if (failed.has(item.parentId)) { failed.add(tempKey); continue; }
+                const realParentId = idMap.get(item.parentId) || item.parentId;
+                if (!realParentId && item.parentId !== parentId) { failed.add(tempKey); continue; }
+                try {
+                    const res = await api.post(`/documents/${docId}/items`, { parent_id: realParentId, content: item.content });
+                    idMap.set(tempKey, res.data.id);
+                } catch (err) {
+                    console.error('Outline paste: failed to create item:', err);
+                    failed.add(tempKey);
+                }
+            }
             await loadItems();
-            const firstFulfilled = results.find(r => r.status === 'fulfilled');
-            if (firstFulfilled) selectItem(firstFulfilled.value.data.id);
+            const firstId = idMap.get('tmp-0');
+            if (firstId) selectItem(firstId);
         } catch (err) {
             showFailedAlert(err.message);
         }
