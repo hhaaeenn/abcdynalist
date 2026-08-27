@@ -480,6 +480,50 @@ function parsePlainTextItems(text) {
     return items;
 }
 
+// Mengubah fragmen HTML berformat kaya (bold/italic/code/link/gambar) menjadi
+// markup markdown agar warnanya konsisten dengan editor saat di-paste (persis Dynalist:
+// teks berformat dari browser disisipkan sebagai markdown, bukan di-strip polos).
+function htmlToMarkdown(html) {
+    if (!html) return '';
+    let doc;
+    try {
+        doc = new DOMParser().parseFromString(html, 'text/html');
+    } catch {
+        return '';
+    }
+    const conv = (el) => {
+        let out = '';
+        el.childNodes.forEach((n) => {
+            if (n.nodeType === 3) { out += n.textContent; return; }
+            if (n.nodeType !== 1) return;
+            const t = n.tagName.toLowerCase();
+            const inner = conv(n);
+            switch (t) {
+                case 'b': case 'strong': out += `**${inner}**`; break;
+                case 'i': case 'em': out += `__${inner}__`; break;
+                case 'code': out += `\`${inner}\``; break;
+                case 'del': out += `~~${inner}~~`; break;
+                case 'mark': out += `==${inner}==`; break;
+                case 'a': {
+                    const href = n.getAttribute('href') || '';
+                    out += href ? `[${inner}](${href})` : inner;
+                    break;
+                }
+                case 'img': {
+                    const src = n.getAttribute('src') || '';
+                    out += src ? `![${n.getAttribute('alt') || ''}](${src})` : '';
+                    break;
+                }
+                case 'br': out += '\n'; break;
+                case 'ul': case 'ol': case 'li': case 'div': case 'p': case 'span': out += inner; break;
+                default: out += inner;
+            }
+        });
+        return out;
+    };
+    return conv(doc.body).replace(/[ \t]+/g, ' ').trim();
+}
+
 function render() {
     els.outline.innerHTML = '';
     rows.clear();
@@ -915,7 +959,15 @@ function buildRow(node, depth) {
     text.addEventListener('mouseup', () => {
         setTimeout(() => { isSelecting = false; }, 0);
     });
-    text.addEventListener('input', () => { if (!editing) editing = true; });
+    text.addEventListener('input', () => {
+        if (!editing) editing = true;
+        scheduleLiveRender(text, node.id);
+    });
+    text.addEventListener('compositionstart', () => { isComposing = true; });
+    text.addEventListener('compositionend', () => {
+        isComposing = false;
+        scheduleLiveRender(text, node.id);
+    });
     text.addEventListener('blur', () => {
         setTimeout(() => {
             if (!isSelecting) commitEdit(node.id);
@@ -947,7 +999,13 @@ function buildRow(node, depth) {
         if (!parsed.length) return;
         // Single line: just insert into current item at caret
         if (parsed.length === 1) {
-            document.execCommand('insertText', false, parsed[0].content);
+            let ins = parsed[0].content;
+            const rawHtml = e.clipboardData.getData('text/html');
+            if (rawHtml && /<(b|strong|i|em|a|code|del|mark|img)[\s>]/i.test(rawHtml)) {
+                const md = htmlToMarkdown(rawHtml);
+                if (md) ins = md;
+            }
+            document.execCommand('insertText', false, ins);
             return;
         }
         // Multi-line paste: first line goes into current item at caret,
@@ -3671,6 +3729,45 @@ function setCaretAtOffset(textEl, targetLen) {
         return false;
     };
     walk(textEl);
+}
+
+// ── Live (real-time) markdown preview saat mengetik (persis semangat Dynalist) ──
+// Aman & terbatas: hanya bekerja saat kursor berada di AKHIR item sehingga tidak
+// menyebabkan caret melompat saat mengetik di tengah teks. Autocomplete & KaTeX dihindari.
+
+function setCaretToEnd(textEl) {
+    if (!textEl) return;
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(textEl);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+}
+
+let liveRenderTimer = null;
+let isComposing = false;
+function scheduleLiveRender(textEl, id) {
+    if (!editing || isComposing) return;
+    if (ac.el && !ac.el.classList.contains('hidden')) return;
+    if (liveRenderTimer) clearTimeout(liveRenderTimer);
+    liveRenderTimer = setTimeout(() => {
+        liveRenderTimer = null;
+        if (!editing || isComposing) return;
+        if (ac.el && !ac.el.classList.contains('hidden')) return;
+        if (!isCaretAtEnd(textEl)) return;
+        const raw = contentFromElement(textEl);
+        if (raw.includes('$')) return;
+        const fresh = contentHtml(raw);
+        if (fresh === textEl.innerHTML) return;
+        textEl.innerHTML = fresh;
+        applyTagColors(textEl);
+        wireInlineImages(textEl, id);
+        unrenderMath(textEl);
+        editing = true;
+        textEl.focus();
+        setCaretToEnd(textEl);
+    }, 260);
 }
 
 async function toggleCheck(id) {
