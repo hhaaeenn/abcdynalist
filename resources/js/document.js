@@ -454,18 +454,6 @@ function parsePlainTextItems(text) {
     return items;
 }
 
-function clipboardItemsToSnapshots(items) {
-    const root = [];
-    const stack = [{ children: root, indent: -1 }];
-    for (const item of items) {
-        while (stack.length > 1 && stack[stack.length - 1].indent >= item.indent) stack.pop();
-        const snapshot = { content: item.content, bullet: defaultBullet, children: [] };
-        stack[stack.length - 1].children.push(snapshot);
-        stack.push({ children: snapshot.children, indent: item.indent });
-    }
-    return root;
-}
-
 function render() {
     els.outline.innerHTML = '';
     rows.clear();
@@ -5389,8 +5377,43 @@ function wireOutline() {
         const parsed = parseClipboardItems(e.clipboardData);
         if (!parsed.length) return;
         e.preventDefault();
-        const snapshots = clipboardItemsToSnapshots(parsed);
-        pasteSnapshots(snapshots, selectedId, 'child');
+        const selRec = selectedId ? rows.get(selectedId) : null;
+        let parentId = selRec ? selRec.node.id : null;
+        if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
+        const baseIndent = parsed.reduce((min, p) => Math.min(min, p.indent), Infinity);
+        parsed.forEach(p => { p.indent -= baseIndent; });
+        const items = [];
+        const stack = [{ id: parentId, indent: -1 }];
+        for (const { content, indent } of parsed) {
+            while (stack.length > 1 && stack[stack.length - 1].indent >= indent) stack.pop();
+            const parentEntry = stack[stack.length - 1];
+            items.push({ content, parentId: parentEntry.id });
+            stack.push({ id: `tmp-${items.length}`, indent });
+        }
+        recordUndo();
+        try {
+            const idMap = new Map();
+            const failed = new Set();
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                const tempKey = `tmp-${i}`;
+                if (failed.has(item.parentId)) { failed.add(tempKey); continue; }
+                const realParentId = idMap.get(item.parentId) || item.parentId;
+                if (!realParentId && item.parentId !== parentId) { failed.add(tempKey); continue; }
+                try {
+                    const res = await api.post(`/documents/${docId}/items`, { parent_id: realParentId, content: item.content });
+                    idMap.set(tempKey, res.data.id);
+                } catch (err) {
+                    console.error('Outline paste: failed to create item:', err);
+                    failed.add(tempKey);
+                }
+            }
+            await loadItems();
+            const firstId = idMap.get('tmp-0');
+            if (firstId) selectItem(firstId);
+        } catch (err) {
+            showFailedAlert(err.message);
+        }
     });
 
     // ── drop file eksternal (gambar / teks) ke outline ───────────────────
