@@ -47,6 +47,12 @@ export function unregisterPendingItem(tempId) {
     pendingItems.delete(tempId);
 }
 
+export async function awaitTempId(tempId) {
+    if (!pendingItems.has(tempId)) return null;
+    const real = await pendingItems.get(tempId).catch(() => null);
+    return real || null;
+}
+
 export async function request(path, { method = 'GET', body } = {}) {
     if (pendingItems.size) {
         const segs = path.split('/');

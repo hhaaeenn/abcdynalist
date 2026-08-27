@@ -1,4 +1,4 @@
-import { api, registerPendingItem, unregisterPendingItem } from './api';
+import { api, registerPendingItem, unregisterPendingItem, awaitTempId } from './api';
 import { toast } from './ui';
 import { store } from './store';
 import { showSuccess, showFailedAlert, esc, showPopupWithAction } from './alerts';
@@ -22,6 +22,13 @@ function rememberId(tempId, realId) {
 }
 function resolveItemId(id) {
     return id ? (idAliases.get(id) || id) : id;
+}
+async function resolveParentAsync(id) {
+    if (!id) return null;
+    const settled = resolveItemId(id);
+    if (settled !== id) return settled;
+    const pending = await awaitTempId(id);
+    return pending || id;
 }
 let flat = [];
 let selectedId = null;
@@ -952,7 +959,6 @@ function buildRow(node, depth) {
         rest.forEach(p => { p.indent -= baseIndent; });
         const curNode = node;
         let curParentId = curNode.parent_id || null;
-        if (curParentId && String(curParentId).startsWith('tmp-')) curParentId = null;
         const curPos = siblingPosition(curNode);
 
         // Susun snapshot bercabang dari daftar {content, indent} yang flat,
@@ -2190,9 +2196,10 @@ function buildTempNodeFromSnapshot(snap, parentId) {
 
 async function persistPastedNode(node, parentId, position) {
     const tempId = node.id;
+    const realParent = await resolveParentAsync(parentId);
     const promise = api
         .post(`/documents/${docId}/items`, {
-            parent_id: parentId,
+            parent_id: realParent,
             position,
             content: node.content || '',
             note: node.note || '',
@@ -2209,7 +2216,7 @@ async function persistPastedNode(node, parentId, position) {
     registerPendingItem(tempId, promise);
     const realId = await promise;
     node.id = realId;
-    node.parent_id = parentId;
+    node.parent_id = realParent;
     rememberId(tempId, realId);
     if (selectedId === tempId) selectedId = realId;
     if (multi.has(tempId)) { multi.delete(tempId); multi.add(realId); }
@@ -3853,9 +3860,10 @@ async function createItemAt(parentId, position, bullet, content) {
     render();
     selectItem(tempId);
     startEdit(tempId);
+    const realParent = await resolveParentAsync(parentId);
     const promise = api
         .post(`/documents/${docId}/items`, {
-            parent_id: parentId,
+            parent_id: realParent,
             ...(position != null ? { position } : {}),
             content: node.content,
             bullet: node.bullet,
