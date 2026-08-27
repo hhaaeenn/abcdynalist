@@ -861,7 +861,7 @@ function buildRow(node, depth) {
     text.addEventListener('mouseup', () => {
         setTimeout(() => { isSelecting = false; }, 0);
     });
-    text.addEventListener('focus', () => { editing = true; });
+    text.addEventListener('input', () => { if (!editing) editing = true; });
     text.addEventListener('blur', () => {
         setTimeout(() => {
             if (!isSelecting) commitEdit(node.id);
