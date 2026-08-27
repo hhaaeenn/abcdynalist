@@ -5386,11 +5386,11 @@ function wireOutline() {
 
     // ── drag-select antar baris (mirip Dynalist: drag di luar bullet/teks) ──
     document.addEventListener('mousemove', (e) => {
-        if (!blockSelectStartId || !(e.buttons & 1)) return;
+        if (blockSelectStartId == null || !(e.buttons & 1)) return;
         const rowEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.item-row');
         if (!rowEl) return;
         const overId = rowEl.dataset.id;
-        if (overId === blockSelectStartId && !blockSelectActive) return;
+        if (String(overId) === String(blockSelectStartId) && !blockSelectActive) return;
 
         if (!blockSelectActive) {
             blockSelectActive = true;
@@ -5398,17 +5398,17 @@ function wireOutline() {
             document.body.classList.add('block-select-dragging');
         }
 
-        const ids = flat.map((f) => f.node.id);
-        const a = ids.indexOf(blockSelectStartId);
-        const b = ids.indexOf(overId);
+        const ids = flat.map((f) => String(f.node.id));
+        const a = ids.indexOf(String(blockSelectStartId));
+        const b = ids.indexOf(String(overId));
         if (a === -1 || b === -1) return;
         const lo = Math.min(a, b);
         const hi = Math.max(a, b);
         multi.clear();
-        for (let i = lo; i <= hi; i++) multi.add(ids[i]);
+        for (let i = lo; i <= hi; i++) multi.add(flat[i].node.id);
         selAnchor = blockSelectStartId;
         selEdge = overId;
-        selectedId = overId;
+        selectedId = flat[b].node.id;
         refreshHighlights();
     });
 
