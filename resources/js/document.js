@@ -386,6 +386,7 @@ function saveUiState() {
 
 function parseClipboardItems(clipboardData) {
     const html = clipboardData.getData('text/html');
+    console.log('[paste-debug] html length:', html?.length || 0, 'plain length:', clipboardData.getData('text/plain')?.length || 0);
     if (html) {
         try {
             const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -428,12 +429,16 @@ function parseClipboardItems(clipboardData) {
                     walk(child, 0);
                 }
             }
+            console.log('[paste-debug] html items parsed:', items.length, 'body.children:', body.children.length);
             if (items.length) return items;
-        } catch { /* fall through to plain text */ }
+        } catch (e) { console.log('[paste-debug] html parse threw:', e); /* fall through to plain text */ }
     }
     const text = clipboardData.getData('text/plain');
+    console.log('[paste-debug] falling back to plain text, length:', text?.length || 0);
     if (!text) return [];
-    return parsePlainTextItems(text);
+    const result = parsePlainTextItems(text);
+    console.log('[paste-debug] plain text items parsed:', result.length);
+    return result;
 }
 
 function parsePlainTextItems(text) {
