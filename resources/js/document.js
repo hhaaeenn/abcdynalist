@@ -932,7 +932,8 @@ function buildRow(node, depth) {
         const baseIndent = rest.reduce((min, p) => Math.min(min, p.indent), Infinity);
         rest.forEach(p => { p.indent -= baseIndent; });
         const curNode = node;
-        const curParentId = curNode.parent_id || null;
+        let curParentId = curNode.parent_id || null;
+        if (curParentId && String(curParentId).startsWith('tmp-')) curParentId = null;
         const curPos = siblingPosition(curNode);
         commitEdit(node.id).then(async () => {
             recordUndo();
@@ -1021,7 +1022,8 @@ function buildRow(node, depth) {
                         if (rec.row) rec.row.dataset.id = realId;
                     }
                     if (selectedId === item.tempId) selectedId = realId;
-                    
+                    reparentTempChildren(item.tempId, realId);
+
                     // Update children that reference this temp id
                     for (const child of items) {
                         if (child.tmpNode.parent_id === item.tempId) {
@@ -2269,6 +2271,7 @@ async function persistPastedNode(node, parentId, position) {
         if (rec.row) rec.row.dataset.id = realId;
     }
     unregisterPendingItem(tempId);
+    reparentTempChildren(tempId, realId);
     if (Array.isArray(node.children) && node.children.length) {
         for (let i = 0; i < node.children.length; i++) {
             await persistPastedNode(node.children[i], realId, i);
@@ -3858,6 +3861,18 @@ function removeNodeLocally(id) {
     splice(tree);
 }
 
+// Saat sebuah tempId (item yang belum tersimpan ke server) berhasil di-resolve
+// jadi ID asli, item lain yang masih menunjuk tempId itu sebagai parent_id-nya
+// perlu ikut diperbarui, supaya tidak ada operasi berikutnya yang mengirim
+// tempId basi ke server (penyebab error "Parent item not found").
+function reparentTempChildren(tempId, realId) {
+    for (const [, rec] of rows) {
+        if (rec?.node && rec.node.parent_id === tempId) {
+            rec.node.parent_id = realId;
+        }
+    }
+}
+
 async function createItemAt(parentId, position, bullet, content) {
     recordUndo();
     const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -3905,6 +3920,7 @@ async function createItemAt(parentId, position, bullet, content) {
         }
         if (selectedId === tempId) selectedId = realId;
         unregisterPendingItem(tempId);
+        reparentTempChildren(tempId, realId);
         return realId;
     } catch (e) {
         removeNodeLocally(tempId);
@@ -5360,6 +5376,7 @@ function wireOutline() {
                 if (rec) { rows.delete(tempId); rows.set(realId, rec); rec.node = node; if (rec.row) rec.row.dataset.id = realId; }
                 if (selectedId === tempId) selectedId = realId;
                 unregisterPendingItem(tempId);
+                reparentTempChildren(tempId, realId);
             }).catch(() => { removeNodeLocally(tempId); unregisterPendingItem(tempId); });
             const permanentUrl = await uploadImage(file);
             if (permanentUrl) {
