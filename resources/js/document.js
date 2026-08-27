@@ -2016,6 +2016,44 @@ function scrollFocusCenter(id) {
     if (rec && rec.row) rec.row.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
+function containsNode(node, targetId) {
+    if (!node) return false;
+    if (node.id === targetId) return true;
+    if (Array.isArray(node.children)) {
+        for (const c of node.children) if (containsNode(c, targetId)) return true;
+    }
+    return false;
+}
+
+// Persis Dynalist: Ctrl+Shift+] / Ctrl+Shift+[ = zoom ke item berikutnya/sebelumnya
+// pada level saat ini (antar top-level item pada zoom aktif, atau antar item akar).
+function zoomToSiblingItem(dir) {
+    let levelNodes;
+    if (zoomId) {
+        const root = findNodeInTree(zoomId);
+        levelNodes = root ? (root.children || []) : [];
+    } else {
+        levelNodes = tree;
+    }
+    if (!levelNodes.length) return;
+    let idx = -1;
+    const anchorId = selectedId || zoomId;
+    if (levelNodes.some((s) => s.id === anchorId)) {
+        idx = levelNodes.findIndex((s) => s.id === anchorId);
+    } else {
+        for (let i = 0; i < levelNodes.length; i++) {
+            if (containsNode(levelNodes[i], anchorId)) { idx = i; break; }
+        }
+    }
+    if (idx === -1) idx = 0;
+    const targetIdx = dir === 'next' ? idx + 1 : idx - 1;
+    if (targetIdx < 0 || targetIdx >= levelNodes.length) {
+        toast(dir === 'next' ? 'Sudah item terakhir pada level ini.' : 'Sudah item pertama pada level ini.');
+        return;
+    }
+    zoomInto(levelNodes[targetIdx].id);
+}
+
 function collapseAll() {
     flat.forEach((f) => {
         if (Array.isArray(f.node.children) && f.node.children.length) collapsed.add(f.node.id);
@@ -2383,10 +2421,26 @@ function menuItemsFor(node) {
     items.push('sep');
 
     if (siblingPosition(node) > 0) {
-        items.push({ label: 'Indent', shortcut: 'Tab', action: () => indent(node.id) });
+        items.push({
+            label: 'Indent',
+            shortcut: 'Tab',
+            action: () => {
+                const ids = multi.size > 1 ? [...multi].filter((x) => flat.some((f) => f.node.id === x)) : [node.id];
+                if (ids.length > 1) indentMany(ids);
+                else indent(node.id);
+            },
+        });
     }
     if (node.parent_id) {
-        items.push({ label: 'Unindent', shortcut: 'Shift+Tab', action: () => unindent(node.id) });
+        items.push({
+            label: 'Unindent',
+            shortcut: 'Shift+Tab',
+            action: () => {
+                const ids = multi.size > 1 ? [...multi].filter((x) => flat.some((f) => f.node.id === x)) : [node.id];
+                if (ids.length > 1) unindentMany(ids);
+                else unindent(node.id);
+            },
+        });
     }
     items.push({ label: 'Move to…', shortcut: 'Ctrl+Shift+M', action: () => openMovePicker(node.id) });
 
@@ -3690,6 +3744,77 @@ async function unindent(id) {
         showFailedAlert(e.message);
         loadItems();
     });
+}
+
+// Apakah id memiliki ancestor (termasuk di pohon) yang termasuk dalam set seleksi?
+function selectionHasAncestor(id, ids) {
+    const path = findAncestorPath(tree, id);
+    if (!path) return false;
+    for (let i = 0; i < path.length - 1; i++) {
+        if (ids.has(path[i].id)) return true;
+    }
+    return false;
+}
+
+// indent / unindent untuk multi-seleksi (persis Dynalist): hanya item teratas
+// pada seleksi (bukan yang merupakan keturunan dari item lain yang ikut terseleksi)
+// yang diproses, lalu satu render + sinkronisasi per item di background.
+async function indentMany(ids) {
+    const idSet = new Set(ids);
+    const targets = flat
+        .filter((f) => idSet.has(f.node.id) && !selectionHasAncestor(f.node.id, idSet))
+        .map((f) => f.node);
+    recordUndo();
+    const moved = [];
+    targets.forEach((node) => {
+        const parentList = node.parent_id ? (findNodeInTree(node.parent_id)?.children || null) : tree;
+        if (!parentList) return;
+        const i = parentList.indexOf(node);
+        if (i <= 0) return;
+        const prev = parentList[i - 1];
+        parentList.splice(i, 1);
+        prev.children = prev.children || [];
+        node.parent_id = prev.id;
+        prev.children.push(node);
+        collapsed.delete(prev.id);
+        moved.push(node.id);
+    });
+    if (!moved.length) return toast('Tidak bisa indent seleksi ini', 'error');
+    buildFlat(); applyZoomFilter(); render();
+    moved.forEach((mid) => {
+        api.post(`/documents/${docId}/items/${mid}/indent`).catch(() => {});
+    });
+    selectItem(targets[0].id);
+}
+
+async function unindentMany(ids) {
+    const idSet = new Set(ids);
+    const targets = flat
+        .filter((f) => idSet.has(f.node.id) && !selectionHasAncestor(f.node.id, idSet))
+        .map((f) => f.node);
+    recordUndo();
+    const moved = [];
+    targets.forEach((node) => {
+        const parent = findNodeInTree(node.parent_id);
+        if (!parent) return;
+        const grandparentId = parent.parent_id || null;
+        const parentList = grandparentId ? (findNodeInTree(grandparentId)?.children || null) : tree;
+        if (!parentList) return;
+        const removeFrom = parent.children || [];
+        const pi = removeFrom.indexOf(node);
+        if (pi === -1) return;
+        removeFrom.splice(pi, 1);
+        const gIdx = parentList.findIndex((s) => s.id === parent.id);
+        node.parent_id = grandparentId;
+        parentList.splice(gIdx + 1, 0, node);
+        moved.push(node.id);
+    });
+    if (!moved.length) return toast('Tidak bisa unindent seleksi ini', 'error');
+    buildFlat(); applyZoomFilter(); render();
+    moved.forEach((mid) => {
+        api.post(`/documents/${docId}/items/${mid}/unindent`).catch(() => {});
+    });
+    selectItem(targets[0].id);
 }
 
 async function deleteItem(id) {
@@ -5264,8 +5389,16 @@ function wireToolbar() {
             else if (act === 'code') applyFormat(selectedId, '`', '`');
             else if (act === 'heading') toggleHeading(selectedId);
             else if (act === 'color') cycleColor(selectedId);
-            else if (act === 'indent') indent(selectedId);
-            else if (act === 'unindent') unindent(selectedId);
+            else if (act === 'indent') {
+                const ids = multi.size > 1 ? [...multi].filter((id) => flat.some((f) => f.node.id === id)) : [selectedId];
+                if (ids.length > 1) indentMany(ids);
+                else indent(selectedId);
+            }
+            else if (act === 'unindent') {
+                const ids = multi.size > 1 ? [...multi].filter((id) => flat.some((f) => f.node.id === id)) : [selectedId];
+                if (ids.length > 1) unindentMany(ids);
+                else unindent(selectedId);
+            }
             else if (act === 'move-up') move('up');
             else if (act === 'move-down') move('down');
             else if (act === 'toggle-check') {
@@ -5540,10 +5673,12 @@ function wireOutline() {
                 else if (selectedId) toggleCollapse(selectedId);
             } else if (e.code === 'BracketRight') {
                 e.preventDefault();
-                zoomInto(selectedId);
+                if (e.shiftKey) zoomToSiblingItem('next');
+                else if (selectedId) zoomInto(selectedId);
             } else if (e.code === 'BracketLeft') {
                 e.preventDefault();
-                zoomOutLevel();
+                if (e.shiftKey) zoomToSiblingItem('prev');
+                else zoomOutLevel();
             } else if (e.shiftKey && key === 'h') {
                 e.preventDefault();
                 toggleHeading(selectedId);
@@ -5638,8 +5773,21 @@ function wireOutline() {
             }
         } else if (e.key === 'Tab') {
             e.preventDefault();
-            if (e.shiftKey) unindent(selectedId);
-            else indent(selectedId);
+            if (multi.size > 1) {
+                const ids = [...multi].filter((id) => flat.some((f) => f.node.id === id));
+                if (ids.length > 1) {
+                    if (e.shiftKey) unindentMany(ids);
+                    else indentMany(ids);
+                } else if (e.shiftKey) {
+                    unindent(selectedId);
+                } else {
+                    indent(selectedId);
+                }
+            } else if (e.shiftKey) {
+                unindent(selectedId);
+            } else {
+                indent(selectedId);
+            }
         } else if (e.key === ' ' || e.key === 'Spacebar') {
             e.preventDefault();
             if (multi.size > 1) {
