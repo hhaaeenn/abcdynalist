@@ -377,6 +377,76 @@ function saveUiState() {
     }
 }
 
+function parseClipboardItems(clipboardData) {
+    const html = clipboardData.getData('text/html');
+    if (html) {
+        try {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const items = [];
+            const walk = (el, depth) => {
+                const children = [...el.children];
+                if (!children.length) return;
+                let hasNestedList = false;
+                for (const child of children) {
+                    const tag = child.tagName.toLowerCase();
+                    if (tag === 'ul' || tag === 'ol') { hasNestedList = true; break; }
+                }
+                for (const child of children) {
+                    const tag = child.tagName.toLowerCase();
+                    if (tag === 'ul' || tag === 'ol') {
+                        walk(child, depth);
+                    } else if (tag === 'li') {
+                        const textNodes = [];
+                        for (const node of child.childNodes) {
+                            if (node.nodeType === 3) textNodes.push(node.textContent);
+                        }
+                        const liText = textNodes.join('').trim();
+                        if (liText) items.push({ content: liText.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
+                        const subList = child.querySelector('ul, ol');
+                        if (subList) walk(subList, depth + 1);
+                    } else {
+                        const text = child.textContent.trim();
+                        if (text && !child.querySelector('ul, ol, li')) {
+                            items.push({ content: text.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
+                        } else {
+                            walk(child, depth);
+                        }
+                    }
+                }
+            };
+            const body = doc.body;
+            for (const child of body.children) {
+                const tag = child.tagName.toLowerCase();
+                if (tag === 'ul' || tag === 'ol' || tag === 'div') {
+                    walk(child, 0);
+                }
+            }
+            if (items.length) return items;
+        } catch { /* fall through to plain text */ }
+    }
+    const text = clipboardData.getData('text/plain');
+    if (!text) return [];
+    return parsePlainTextItems(text);
+}
+
+function parsePlainTextItems(text) {
+    const rawLines = text.split(/\r?\n/);
+    const items = [];
+    for (const raw of rawLines) {
+        if (raw.trim() === '') continue;
+        const leadMatch = raw.match(/^(\t*)([ ]*)/);
+        let indent = 0;
+        if (leadMatch) {
+            indent = (leadMatch[1] || '').length;
+            const spaces = (leadMatch[2] || '').length;
+            if (spaces > 0) indent += Math.floor(spaces / 2) || (spaces > 0 ? 1 : 0);
+        }
+        const content = raw.replace(/^[\t ]+/, '').replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
+        items.push({ content, indent });
+    }
+    return items;
+}
+
 function render() {
     els.outline.innerHTML = '';
     rows.clear();
@@ -810,25 +880,7 @@ function buildRow(node, depth) {
             return;
         }
         e.preventDefault();
-        const t = e.clipboardData.getData('text/plain');
-        if (!t) return;
-        // Parse pasted lines, keeping track of indentation level
-        const rawLines = t.split(/\r?\n/);
-        const parsed = [];
-        for (const raw of rawLines) {
-            if (raw.trim() === '') continue;
-            // Count leading indent (tabs or groups of 2/4 spaces)
-            const leadMatch = raw.match(/^(\t*)([ ]*)/);
-            let indent = 0;
-            if (leadMatch) {
-                indent = (leadMatch[1] || '').length;
-                const spaces = (leadMatch[2] || '').length;
-                if (spaces > 0) indent += Math.floor(spaces / 2) || (spaces > 0 ? 1 : 0);
-            }
-            // Strip common list prefixes (-, *, •, numbered)
-            const content = raw.replace(/^[\t ]+/, '').replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
-            parsed.push({ content, indent });
-        }
+        const parsed = parseClipboardItems(e.clipboardData);
         if (!parsed.length) return;
         // Single line: just insert into current item at caret
         if (parsed.length === 1) {
@@ -1292,6 +1344,22 @@ async function bulkDelete() {
     const ids = [...multi];
     if (!ids.length) return;
     recordUndo();
+    const allIds = new Set(ids);
+    for (const id of ids) {
+        const node = findNodeInTree(id);
+        if (node && node.children) {
+            const collectChildren = (children) => {
+                for (const child of children) {
+                    if (!allIds.has(child.id)) {
+                        allIds.add(child.id);
+                        if (child.children) collectChildren(child.children);
+                    }
+                }
+            };
+            collectChildren(node.children);
+        }
+    }
+    const idx = flat.findIndex(f => ids.includes(f.node.id));
     ids.forEach((id) => {
         removeNodeLocally(id);
         collapsed.delete(id);
@@ -1299,15 +1367,23 @@ async function bulkDelete() {
     });
     selAnchor = null;
     selEdge = null;
-    if (selectedId && ids.includes(selectedId)) selectedId = null;
+    if (selectedId && allIds.has(selectedId)) selectedId = null;
     buildFlat();
     applyZoomFilter();
     render();
+    const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
+    if (target) selectItem(target.node.id);
     try {
-        await Promise.all(ids.map((id) => api.delete(`/documents/${docId}/items/${id}`)));
-        toast(`${ids.length} item dihapus. Pulihkan dari Trash.`);
+        const results = await Promise.allSettled(ids.map(id => api.delete(`/documents/${docId}/items/${id}`)));
+        const errs = results.filter(r => r.status === 'rejected');
+        if (errs.length) {
+            showFailedAlert(`${errs.length} item gagal dihapus`);
+            loadItems();
+        } else {
+            toast(`${ids.length} item dihapus. Pulihkan dari Trash.`);
+        }
     } catch (e) {
-        showFailedAlert('Beberapa item gagal dihapus: ' + e.message);
+        showFailedAlert('Gagal menghapus: ' + e.message);
         loadItems();
     }
 }
@@ -3656,6 +3732,30 @@ function nav(dir) {
     selectItem(flat[i].node.id);
 }
 
+function navInto() {
+    const node = rows.get(selectedId)?.node;
+    if (!node || !node.children || !node.children.length) return;
+    if (collapsed.has(selectedId)) {
+        collapsed.delete(selectedId);
+        saveUiState();
+        render();
+    }
+    const idx = flat.findIndex(f => f.node.id === selectedId);
+    if (idx >= 0 && idx + 1 < flat.length) selectItem(flat[idx + 1].node.id);
+}
+
+function navOut() {
+    const node = rows.get(selectedId)?.node;
+    if (!node) return;
+    if (!collapsed.has(selectedId) && node.children && node.children.length) {
+        collapsed.add(selectedId);
+        saveUiState();
+        render();
+    } else if (node.parent_id) {
+        selectItem(node.parent_id);
+    }
+}
+
 function extendSelect(dir) {
     if (!selectedId || !flat.length) return;
     const ids = flat.map((f) => f.node.id);
@@ -5048,24 +5148,9 @@ function wireOutline() {
             }
             return;
         }
-        const t = e.clipboardData.getData('text/plain');
-        if (!t) return;
-        e.preventDefault();
-        const rawLines = t.split(/\r?\n/);
-        const parsed = [];
-        for (const raw of rawLines) {
-            if (raw.trim() === '') continue;
-            const leadMatch = raw.match(/^(\t*)([ ]*)/);
-            let indent = 0;
-            if (leadMatch) {
-                indent = (leadMatch[1] || '').length;
-                const spaces = (leadMatch[2] || '').length;
-                if (spaces > 0) indent += Math.floor(spaces / 2) || 1;
-            }
-            const content = raw.replace(/^[\t ]+/, '').replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
-            parsed.push({ content, indent });
-        }
+        const parsed = parseClipboardItems(e.clipboardData);
         if (!parsed.length) return;
+        e.preventDefault();
         const selRec = selectedId ? rows.get(selectedId) : null;
         let parentId = selRec ? selRec.node.id : null;
         if (parentId && String(parentId).startsWith('tmp-')) parentId = null;
@@ -5248,6 +5333,12 @@ function wireOutline() {
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             nav(-1);
+        } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            navInto();
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            navOut();
         } else if (e.key === 'PageDown') {
             e.preventDefault();
             nav(10);
@@ -5262,7 +5353,12 @@ function wireOutline() {
             if (flat.length) selectItem(flat[flat.length - 1].node.id);
         } else if (e.key === 'Enter') {
             e.preventDefault();
-            addSiblingBelow();
+            const node = rows.get(selectedId)?.node;
+            if (node && node.children && node.children.length) {
+                navInto();
+            } else {
+                addSiblingBelow();
+            }
         } else if (e.key === 'Tab') {
             e.preventDefault();
             if (e.shiftKey) unindent(selectedId);
