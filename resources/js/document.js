@@ -715,7 +715,7 @@ function buildRow(node, depth) {
     text.innerHTML = contentHtml(node.content);
     applyTagColors(text);
     wireInlineImages(text, node.id);
-    text.contentEditable = 'false';
+    text.contentEditable = 'true';
 
     let noteEl = null;
     if (node.note && notesMode !== 'hide') {
@@ -807,7 +807,6 @@ function buildRow(node, depth) {
         const sel = window.getSelection();
         const selInText = sel && !sel.isCollapsed && text.contains(sel.anchorNode);
         if (selInText) {
-            if (!editing) { editing = true; text.contentEditable = 'true'; text.focus(); }
             return;
         }
         if (multi.size) clearMulti();
@@ -857,7 +856,17 @@ function buildRow(node, depth) {
     });
 
     text.addEventListener('keydown', (e) => handleEditKey(e, node.id));
-    text.addEventListener('blur', () => commitEdit(node.id));
+    let isSelecting = false;
+    text.addEventListener('selectstart', () => { isSelecting = true; });
+    text.addEventListener('mouseup', () => {
+        setTimeout(() => { isSelecting = false; }, 0);
+    });
+    text.addEventListener('focus', () => { editing = true; });
+    text.addEventListener('blur', () => {
+        setTimeout(() => {
+            if (!isSelecting) commitEdit(node.id);
+        }, 100);
+    });
     text.addEventListener('paste', async (e) => {
         const imgItem = [...(e.clipboardData?.items || [])].find((it) => it.type.startsWith('image/'));
         if (imgItem) {
@@ -2966,7 +2975,6 @@ function startEdit(id, evt) {
     const rec = rows.get(id);
     if (!rec) return;
     editing = true;
-    rec.text.contentEditable = 'true';
     unrenderMath(rec.text);
     rec.text.focus();
     if (evt && document.caretRangeFromPoint) {
@@ -2992,7 +3000,6 @@ async function commitEdit(id) {
     if (!rec) return false;
     editing = false;
     acHide();
-    rec.text.contentEditable = 'false';
     const value = contentFromElement(rec.text);
     if (value === (rec.node.content || '')) {
         return false;
@@ -3016,7 +3023,6 @@ function cancelEdit(id) {
     if (!rec) return;
     editing = false;
     acHide();
-    rec.text.contentEditable = 'false';
     rec.text.innerHTML = contentHtml(rec.node.content || '');
     wireInlineImages(rec.text, id);
 }
@@ -3026,6 +3032,21 @@ function hasTextSelectionInside(id) {
     if (!sel || sel.isCollapsed) return false;
     const text = rows.get(id)?.text;
     return !!text && text.contains(sel.anchorNode);
+}
+
+function hasCrossItemSelection() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return false;
+    const anchor = sel.anchorNode;
+    const focus = sel.focusNode;
+    for (const [id, rec] of rows) {
+        if (rec.text.contains(anchor)) {
+            for (const [id2, rec2] of rows) {
+                if (id2 !== id && rec2.text.contains(focus)) return true;
+            }
+        }
+    }
+    return false;
 }
 
 function isWholeItemSelected(id) {
@@ -3083,12 +3104,12 @@ function handleEditKey(e, id) {
             // Ctrl+Enter = tandai selesai / batal (berlaku utk semua item, persis ABCLIST)
             commitEdit(id).then(() => toggleCheck(id));
         } else if (key === 'c' && !e.shiftKey) {
-            if (hasTextSelectionInside(id)) return;
+            if (hasTextSelectionInside(id) || hasCrossItemSelection()) return;
             e.preventDefault();
             e.stopPropagation();
             commitEdit(id).then(() => copyItems());
         } else if (key === 'x' && !e.shiftKey) {
-            if (hasTextSelectionInside(id)) return;
+            if (hasTextSelectionInside(id) || hasCrossItemSelection()) return;
             e.preventDefault();
             e.stopPropagation();
             commitEdit(id).then(() => cutItems());
