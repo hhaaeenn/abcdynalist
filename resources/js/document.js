@@ -44,6 +44,11 @@ let notesOverride = null;
 
 let isSelecting = false;
 
+// ── block/drag select antar item (mirip Dynalist) ──────────────────────
+let blockSelectStartId = null;
+let blockSelectActive = false;
+let suppressNextRowClick = false;
+
 let lastVisibleIds = new Set();
 let flatSearch = false;
 let trashItems = [];
@@ -793,7 +798,29 @@ function buildRow(node, depth) {
     rows.set(node.id, { row, text, bullet, cell, node });
 
     // ── event baris ───────────────────────────────────────────────────────
+    row.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('.bullet') ||
+            e.target.closest('.item-del') ||
+            e.target.closest('.item-menu-btn') ||
+            e.target.closest('.item-zoom') ||
+            e.target.closest('.backlink-badge') ||
+            e.target.closest('.item-reminder') ||
+            e.target.closest('.item-chevron') ||
+            e.target.closest('.internal-link') ||
+            e.target.closest('.item-tag')) return;
+        if (e.ctrlKey || e.metaKey || e.shiftKey) return; // biarkan ctrl/shift-click jalan seperti biasa
+        blockSelectStartId = node.id;
+        blockSelectActive = false;
+    });
+
     row.addEventListener('click', (e) => {
+        if (suppressNextRowClick) {
+            suppressNextRowClick = false;
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
         if (e.target.closest('.bullet') ||
             e.target.closest('.item-del') ||
             e.target.closest('.backlink-badge') ||
@@ -5356,6 +5383,43 @@ function wireOutline() {
         const parentId = rowEl ? rowEl.dataset.id : null;
         await insertDroppedFiles(e.dataTransfer, parentId);
     }, true);
+
+    // ── drag-select antar baris (mirip Dynalist: drag di luar bullet/teks) ──
+    document.addEventListener('mousemove', (e) => {
+        if (!blockSelectStartId || !(e.buttons & 1)) return;
+        const rowEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.item-row');
+        if (!rowEl) return;
+        const overId = rowEl.dataset.id;
+        if (overId === blockSelectStartId && !blockSelectActive) return;
+
+        if (!blockSelectActive) {
+            blockSelectActive = true;
+            window.getSelection()?.removeAllRanges();
+            document.body.classList.add('block-select-dragging');
+        }
+
+        const ids = flat.map((f) => f.node.id);
+        const a = ids.indexOf(blockSelectStartId);
+        const b = ids.indexOf(overId);
+        if (a === -1 || b === -1) return;
+        const lo = Math.min(a, b);
+        const hi = Math.max(a, b);
+        multi.clear();
+        for (let i = lo; i <= hi; i++) multi.add(ids[i]);
+        selAnchor = blockSelectStartId;
+        selEdge = overId;
+        selectedId = overId;
+        refreshHighlights();
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (blockSelectActive) {
+            document.body.classList.remove('block-select-dragging');
+            suppressNextRowClick = true;
+        }
+        blockSelectStartId = null;
+        blockSelectActive = false;
+    });
 
     els.outline.addEventListener('keydown', (e) => {
         if (editing || e.defaultPrevented) return;
