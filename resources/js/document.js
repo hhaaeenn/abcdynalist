@@ -42,6 +42,8 @@ let globalNotes = 'show';
 let completedOverride = null;
 let notesOverride = null;
 
+let isSelecting = false;
+
 let lastVisibleIds = new Set();
 let flatSearch = false;
 let trashItems = [];
@@ -805,9 +807,9 @@ function buildRow(node, depth) {
             return;
         }
         const sel = window.getSelection();
-        const selInText = sel && !sel.isCollapsed && text.contains(sel.anchorNode);
-        if (selInText) {
-            return;
+        if (sel && !sel.isCollapsed) {
+            if (hasCrossItemSelection()) return;
+            if (text.contains(sel.anchorNode)) return;
         }
         if (multi.size) clearMulti();
         selectItem(node.id);
@@ -856,7 +858,6 @@ function buildRow(node, depth) {
     });
 
     text.addEventListener('keydown', (e) => handleEditKey(e, node.id));
-    let isSelecting = false;
     text.addEventListener('selectstart', () => { isSelecting = true; });
     text.addEventListener('mouseup', () => {
         setTimeout(() => { isSelecting = false; }, 0);
@@ -2987,7 +2988,7 @@ function startEdit(id, evt) {
         }
     }
     const sel = window.getSelection();
-    if (sel && !sel.isCollapsed && rec.text.contains(sel.anchorNode)) return;
+    if (sel && !sel.isCollapsed && (rec.text.contains(sel.anchorNode) || hasCrossItemSelection())) return;
     const range = document.createRange();
     range.selectNodeContents(rec.text);
     range.collapse(false);
@@ -3039,12 +3040,13 @@ function hasCrossItemSelection() {
     if (!sel || sel.isCollapsed) return false;
     const anchor = sel.anchorNode;
     const focus = sel.focusNode;
+    let anchorId = null;
     for (const [id, rec] of rows) {
-        if (rec.text.contains(anchor)) {
-            for (const [id2, rec2] of rows) {
-                if (id2 !== id && rec2.text.contains(focus)) return true;
-            }
-        }
+        if (rec.text.contains(anchor)) { anchorId = id; break; }
+    }
+    if (anchorId === null) return false;
+    for (const [id, rec] of rows) {
+        if (id !== anchorId && rec.text.contains(focus)) return true;
     }
     return false;
 }
@@ -3457,33 +3459,39 @@ async function mergeItems(keepId, dropId, junction) {
 function getCrossItemSelectionInfo() {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-    const range = sel.getRangeAt(0);
-    let startItem = null;
-    let endItem = null;
-    for (const [id, rec] of rows) {
-        if (rec.text.contains(range.startContainer)) startItem = { id, textEl: rec.text };
-        if (rec.text.contains(range.endContainer)) endItem = { id, textEl: rec.text };
+    try {
+        const range = sel.getRangeAt(0);
+        const anchor = sel.anchorNode;
+        const focus = sel.focusNode;
+        let startItem = null;
+        let endItem = null;
+        for (const [id, rec] of rows) {
+            if (rec.text.contains(anchor)) startItem = { id, textEl: rec.text };
+            if (rec.text.contains(focus)) endItem = { id, textEl: rec.text };
+        }
+        if (!startItem || !endItem || startItem.id === endItem.id) return null;
+        const visibleIds = flat.map((f) => f.node.id);
+        const si = visibleIds.indexOf(startItem.id);
+        const ei = visibleIds.indexOf(endItem.id);
+        if (si === -1 || ei === -1) return null;
+        const first = si <= ei ? startItem : endItem;
+        const last = si <= ei ? endItem : startItem;
+        const r1 = document.createRange();
+        r1.setStart(first.textEl, 0);
+        r1.setEnd(si <= ei ? range.startContainer : range.endContainer, si <= ei ? range.startOffset : range.endOffset);
+        const textBefore = r1.toString();
+        const r2 = document.createRange();
+        r2.setStart(si <= ei ? range.endContainer : range.startContainer, si <= ei ? range.endOffset : range.startOffset);
+        r2.setEnd(last.textEl, last.textEl.childNodes.length);
+        const textAfter = r2.toString();
+        const middleIds = [];
+        const firstIdx = visibleIds.indexOf(first.id);
+        const lastIdx = visibleIds.indexOf(last.id);
+        for (let i = firstIdx + 1; i <= lastIdx; i++) middleIds.push(visibleIds[i]);
+        return { first, last, textBefore, textAfter, middleIds, caretOffset: textBefore.length };
+    } catch (e) {
+        return null;
     }
-    if (!startItem || !endItem || startItem.id === endItem.id) return null;
-    const visibleIds = flat.map((f) => f.node.id);
-    const si = visibleIds.indexOf(startItem.id);
-    const ei = visibleIds.indexOf(endItem.id);
-    if (si === -1 || ei === -1) return null;
-    const first = si <= ei ? startItem : endItem;
-    const last = si <= ei ? endItem : startItem;
-    const r1 = document.createRange();
-    r1.setStart(first.textEl, 0);
-    r1.setEnd(si <= ei ? range.startContainer : range.endContainer, si <= ei ? range.startOffset : range.endOffset);
-    const textBefore = r1.toString();
-    const r2 = document.createRange();
-    r2.setStart(si <= ei ? range.endContainer : range.startContainer, si <= ei ? range.endOffset : range.startOffset);
-    r2.setEnd(last.textEl, last.textEl.childNodes.length);
-    const textAfter = r2.toString();
-    const middleIds = [];
-    const firstIdx = visibleIds.indexOf(first.id);
-    const lastIdx = visibleIds.indexOf(last.id);
-    for (let i = firstIdx + 1; i <= lastIdx; i++) middleIds.push(visibleIds[i]);
-    return { first, last, textBefore, textAfter, middleIds, caretOffset: textBefore.length };
 }
 
 async function deleteCrossItemSelection(preInfo) {
