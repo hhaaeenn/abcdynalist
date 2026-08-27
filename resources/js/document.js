@@ -1776,12 +1776,18 @@ async function doCopyDrop(id, action) {
         position = indexAmongSiblings(target) + (action.type === 'after' ? 1 : 0);
     }
 
+    const tempNode = buildTempNodeFromSnapshot(snapshotNode(node), parentId);
+    insertNodeLocally(parentId, position, tempNode);
+    buildFlat();
+    applyZoomFilter();
+    render();
+    selectItem(tempNode.id);
+
     try {
-        const newId = await createFromSnapshot(snapshotNode(node), parentId, position);
-        await loadItems();
-        selectItem(newId);
+        await persistPastedNode(tempNode, parentId, position);
     } catch (e) {
         showFailedAlert(e.message);
+        loadItems();
     }
 }
 
@@ -2212,25 +2218,63 @@ async function cutItems() {
     else await deleteItem(selectedId);
 }
 
-async function createFromSnapshot(snap, parentId, position) {
-    const payload = {
+function buildTempNodeFromSnapshot(snap, parentId) {
+    const tempId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const node = {
+        id: tempId,
         parent_id: parentId || null,
-        position,
         content: snap.content || '',
         note: snap.note || '',
         checked: !!snap.checked,
         heading: snap.heading || 0,
         color: snap.color || null,
         bullet: snap.bullet || 'bullet',
+        tags: [],
+        sort_order: 0,
+        children: [],
     };
-    const res = await api.post(`/documents/${docId}/items`, payload);
-    const newId = res.data.id;
     if (Array.isArray(snap.children)) {
-        for (let i = 0; i < snap.children.length; i++) {
-            await createFromSnapshot(snap.children[i], newId, i);
+        node.children = snap.children.map((c) => buildTempNodeFromSnapshot(c, tempId));
+    }
+    return node;
+}
+
+async function persistPastedNode(node, parentId, position) {
+    const tempId = node.id;
+    const promise = api
+        .post(`/documents/${docId}/items`, {
+            parent_id: parentId,
+            position,
+            content: node.content || '',
+            note: node.note || '',
+            checked: !!node.checked,
+            heading: node.heading || 0,
+            color: node.color || null,
+            bullet: node.bullet || 'bullet',
+        })
+        .then((res) => res.data.id)
+        .catch((e) => {
+            unregisterPendingItem(tempId);
+            throw e;
+        });
+    registerPendingItem(tempId, promise);
+    const realId = await promise;
+    node.id = realId;
+    node.parent_id = parentId;
+    const rec = rows.get(tempId);
+    if (rec) {
+        rows.delete(tempId);
+        rows.set(realId, rec);
+        rec.node = node;
+        if (rec.row) rec.row.dataset.id = realId;
+    }
+    unregisterPendingItem(tempId);
+    if (Array.isArray(node.children) && node.children.length) {
+        for (let i = 0; i < node.children.length; i++) {
+            await persistPastedNode(node.children[i], realId, i);
         }
     }
-    return newId;
+    return realId;
 }
 
 async function pasteSnapshots(snapshots, id, mode) {
@@ -2245,15 +2289,25 @@ async function pasteSnapshots(snapshots, id, mode) {
         if (!rec) { parentId = null; pos = 0; }
         else { parentId = rec.node.parent_id || null; pos = siblingPosition(rec.node) + 1; }
     }
-    let firstId = null;
-    let lastId = null;
-    for (let i = 0; i < snapshots.length; i++) {
-        const newId = await createFromSnapshot(snapshots[i], parentId, pos + i);
-        if (!firstId) firstId = newId;
-        lastId = newId;
-    }
-    await loadItems();
-    selectItem(lastId || firstId);
+
+    const tempNodes = snapshots.map((snap) => buildTempNodeFromSnapshot(snap, parentId));
+    tempNodes.forEach((node, i) => insertNodeLocally(parentId, pos + i, node));
+    buildFlat();
+    applyZoomFilter();
+    render();
+    const lastTop = tempNodes[tempNodes.length - 1];
+    if (lastTop) selectItem(lastTop.id);
+
+    (async () => {
+        try {
+            for (let i = 0; i < tempNodes.length; i++) {
+                await persistPastedNode(tempNodes[i], parentId, pos + i);
+            }
+        } catch (e) {
+            showFailedAlert('Gagal menyimpan item yang di-paste: ' + e.message);
+            loadItems();
+        }
+    })();
 }
 
 async function pasteAsChild(id) {
