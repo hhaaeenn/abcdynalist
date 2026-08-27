@@ -893,10 +893,21 @@ function buildRow(node, depth) {
             buildFlat(); applyZoomFilter(); render();
             // Send API calls to persist all items
             const idMap = new Map(); // tempId -> realId
+            const failed = new Set(); // track tempIds whose API creation failed
             for (const item of items) {
+                // Skip children whose parent failed to create
+                if (failed.has(item.parentId)) {
+                    failed.add(item.tempId);
+                    continue;
+                }
                 const realParentId = item.parentId === curParentId
                     ? curParentId
-                    : (idMap.get(item.parentId) || item.parentId);
+                    : idMap.get(item.parentId);
+                // If parent wasn't resolved (and isn't the current node), skip
+                if (!realParentId && item.parentId !== curParentId) {
+                    failed.add(item.tempId);
+                    continue;
+                }
                 const reqPromise = api.post(`/documents/${docId}/items`, {
                     parent_id: realParentId,
                     position: item.parentId === curParentId
@@ -929,7 +940,8 @@ function buildRow(node, depth) {
                         }
                     }
                 } catch (err) {
-                    // ignore error
+                    console.error('Paste: failed to create item:', err);
+                    failed.add(item.tempId);
                 } finally {
                     unregisterPendingItem(item.tempId);
                 }
@@ -2914,7 +2926,7 @@ async function commitEdit(id) {
     rec.node.content = value;
     rec.text.innerHTML = contentHtml(value);
     wireInlineImages(rec.text, id);
-    api.patch(`/documents/${docId}/items/${id}`, { content: value }).catch((e) => {
+    await api.patch(`/documents/${docId}/items/${id}`, { content: value }).catch((e) => {
         rec.node.content = previous;
         rec.text.innerHTML = contentHtml(previous);
         wireInlineImages(rec.text, id);
@@ -5047,12 +5059,14 @@ function wireOutline() {
         const basePos = parentId ? (selRec.node.children || []).length : 0;
         recordUndo();
         try {
-            const results = await Promise.all(lines.map((line, i) =>
+            const results = await Promise.allSettled(lines.map((line, i) =>
                 api.post(`/documents/${docId}/items`, { parent_id: parentId, position: basePos + i, content: line })
             ));
-            const firstId = results[0]?.data?.id;
+            const errs = results.filter(r => r.status === 'rejected');
+            if (errs.length) showFailedAlert(`${errs.length} of ${lines.length} items failed: ${errs[0].reason?.message || 'unknown error'}`);
             await loadItems();
-            if (firstId) selectItem(firstId);
+            const firstFulfilled = results.find(r => r.status === 'fulfilled');
+            if (firstFulfilled) selectItem(firstFulfilled.value.data.id);
         } catch (err) {
             showFailedAlert(err.message);
         }
