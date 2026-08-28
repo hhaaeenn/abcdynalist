@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Produk &amp; Pakaian</title>
+  </head>
+  <body>
+    <outline text="Elektronik &amp; Gadget">
+      <outline text="Smartphone">
+        <outline text="Android">
+          <outline text="Infinix Note 12 G96 - Rp 2.400.000 (Stok: 5)"/>
+          <outline text="Samsung Galaxy A15 - Rp 2.800.000 (Stok: 8)"/>
+        </outline>
+        <outline text="iOS">
+          <outline text="iPhone 13 - Rp 10.500.000 (Stok: 3)"/>
+        </outline>
+      </outline>
+      <outline text="Aksesoris Gadget">
+        <outline text="Powerbank 10000mAh - Rp 199.000 (Stok: 15)"/>
+        <outline text="TWS Bluetooth Earbuds - Rp 150.000 (Stok: 20)"/>
+        <outline text="Charger Fast Charging 20W - Rp 95.000 (Stok: 25)"/>
+      </outline>
+    </outline>
+    <outline text="Pakaian &amp; Fashion">
+      <outline text="Pakaian Pria">
+        <outline text="Atasan">
+          <outline text="Kemeja Flanel Casual - Rp 150.000 (Stok: 25)"/>
+          <outline text="Kaos Polos Cotton Combed 30s - Rp 45.000 (Stok: 60)"/>
+          <outline text="Hoodie Fleece Oversized - Rp 230.000 (Stok: 10)"/>
+        </outline>
+        <outline text="Bawahan">
+          <outline text="Celana Jeans Slim Fit - Rp 225.000 (Stok: 12)"/>
+          <outline text="Celana Chinos Panjang - Rp 195.000 (Stok: 18)"/>
+        </outline>
+        <outline text="Pakaian Luar">
+          <outline text="Jaket Bomber Waterproof - Rp 290.000 (Stok: 8)"/>
+        </outline>
+        <outline text="Aksesoris">
+          <outline text="Topi Baseball Polos - Rp 65.000 (Stok: 40)"/>
+          <outline text="Jam Tangan Analog Kulit - Rp 185.000 (Stok: 15)"/>
+          <outline text="Dompet Kulit Asli - Rp 120.000 (Stok: 22)"/>
+          <outline text="Kacamata Hitam Aviator - Rp 95.000 (Stok: 3)"/>
+          <outline text="Ikat Pinggang Kanvas - Rp 50.000 (Stok: 25)"/>
+        </outline>
+        <outline text="Alas Kaki">
+          <outline text="Sepatu Sneakers Putih - Rp 350.000 (Stok: 5)"/>
+          <outline text="Sandal Slides Casual - Rp 85.000 (Stok: 30)"/>
+        </outline>
+      </outline>
+    </outline>
+  </body>
+</opml>
