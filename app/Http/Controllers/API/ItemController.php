@@ -690,21 +690,34 @@ class ItemController extends Controller
         $userId = reset($changed)->user_id;
         $counts = $this->revisionCountsFor($userId, array_keys($changed));
 
+        $idsToTrim = [];
+        foreach ($changed as $id => $item) {
+            $stat = $counts[$id] ?? null;
+            if ($stat && $stat['total'] >= self::REVISION_LIMIT && $stat['oldest'] !== null) {
+                $idsToTrim[] = $id;
+            }
+        }
+
+        if ($idsToTrim) {
+            ItemRevision::where('user_id', $userId)
+                ->whereIn('item_id', $idsToTrim)
+                ->where(function ($query) use ($counts, $idsToTrim) {
+                    foreach ($idsToTrim as $id) {
+                        $stat = $counts[$id];
+                        $query->orWhere(function ($q) use ($id, $stat) {
+                            $q->where('item_id', $id)
+                              ->where('created_at', $stat['oldest']);
+                        });
+                    }
+                })
+                ->delete();
+        }
+
         $now = now();
         $rows = [];
         $collection = null;
 
         foreach ($changed as $id => $item) {
-            $stat = $counts[$id] ?? null;
-
-            if ($stat && $stat['total'] >= self::REVISION_LIMIT && $stat['oldest'] !== null) {
-                ItemRevision::where('user_id', $userId)
-                    ->where('item_id', $id)
-                    ->orderBy('created_at')
-                    ->first()
-                    ?->delete();
-            }
-
             $collection = $collection ?: ItemRevision::where('user_id', $userId)->raw();
             $rows[] = $this->revisionPayload($item) + ['created_at' => $now, 'updated_at' => $now];
         }

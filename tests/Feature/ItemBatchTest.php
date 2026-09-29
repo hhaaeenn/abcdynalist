@@ -176,6 +176,23 @@ class ItemBatchTest extends ApiTestCase
             ->assertStatus(422);
     }
 
+    public function test_batch_update_accepts_exactly_200_items(): void
+    {
+        $user = $this->createUser();
+        $doc = $this->createDocument($user);
+
+        $items = [];
+        for ($i = 0; $i < 200; $i++) {
+            $item = $this->createItem($user, $doc, ['content' => "v{$i}"]);
+            $items[] = ['id' => (string) $item->id, 'content' => "updated {$i}"];
+        }
+
+        $this->withHeaders($this->authHeaders($user))
+            ->patchJson($this->batchUrl($doc, '-batch'), ['items' => $items])
+            ->assertOk()
+            ->assertJsonPath('updated', 200);
+    }
+
     public function test_batch_update_validates_field_values(): void
     {
         $user = $this->createUser();

@@ -15,7 +15,7 @@ class ItemTest extends ApiTestCase
         $doc = $this->createDocument($user);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items", [
+            ->postJson("/v1/documents/{$doc->id}/items", [
                 'content' => 'Beli susu',
                 'tags' => ['belanja', 'urgent'],
             ])->assertStatus(201)
@@ -31,7 +31,7 @@ class ItemTest extends ApiTestCase
         $this->createItem($user, $doc, ['content' => 'Beli bahan #belanja']);
 
         $response = $this->withHeaders($this->authHeaders($user))
-            ->getJson('/api/tags')
+            ->getJson('/v1/tags')
             ->assertOk()
             ->assertJsonCount(3, 'data');
 
@@ -39,7 +39,7 @@ class ItemTest extends ApiTestCase
         $this->assertEquals(['#belanja', '#pekerjaan', '#penting'], $tags);
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson('/api/tags/%23penting')
+            ->getJson('/v1/tags/%23penting')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.content', 'Selesaikan #pekerjaan dan #penting');
@@ -53,7 +53,7 @@ class ItemTest extends ApiTestCase
         $userB = $this->createUser(['email' => 'b@example.com']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->postJson("/api/documents/{$docA->id}/items", ['content' => 'Nope'])
+            ->postJson("/v1/documents/{$docA->id}/items", ['content' => 'Nope'])
             ->assertStatus(404);
     }
 
@@ -65,7 +65,7 @@ class ItemTest extends ApiTestCase
         $this->createItem($user, $doc, ['content' => 'Child', 'parent_id' => $parent->id, 'sort_order' => 0]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson("/api/documents/{$doc->id}/items")
+            ->getJson("/v1/documents/{$doc->id}/items")
             ->assertOk()
             ->assertJsonPath('data.0.content', 'Parent')
             ->assertJsonPath('data.0.children.0.content', 'Child');
@@ -78,7 +78,7 @@ class ItemTest extends ApiTestCase
         $item = $this->createItem($user, $doc, ['content' => 'Before']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->patchJson("/api/documents/{$doc->id}/items/{$item->id}", [
+            ->patchJson("/v1/documents/{$doc->id}/items/{$item->id}", [
                 'content' => 'After',
                 'checked' => true,
             ])->assertOk()
@@ -94,7 +94,7 @@ class ItemTest extends ApiTestCase
         $child = $this->createItem($user, $doc, ['content' => 'Child', 'sort_order' => 1]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$child->id}/move", ['parent_id' => $parent->id])
+            ->postJson("/v1/documents/{$doc->id}/items/{$child->id}/move", ['parent_id' => $parent->id])
             ->assertOk()
             ->assertJsonPath('data.parent_id', $parent->id);
     }
@@ -107,7 +107,7 @@ class ItemTest extends ApiTestCase
         $grandchild = $this->createItem($user, $doc, ['content' => 'Grandchild', 'parent_id' => $parent->id, 'sort_order' => 0]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$parent->id}/move", ['parent_id' => $grandchild->id])
+            ->postJson("/v1/documents/{$doc->id}/items/{$parent->id}/move", ['parent_id' => $grandchild->id])
             ->assertStatus(422);
     }
 
@@ -121,7 +121,7 @@ class ItemTest extends ApiTestCase
         $other = $this->createItem($user, $docA, ['content' => 'Other', 'sort_order' => 1]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$docA->id}/items/{$root->id}/move-document", ['target_document_id' => $docB->id])
+            ->postJson("/v1/documents/{$docA->id}/items/{$root->id}/move-document", ['target_document_id' => $docB->id])
             ->assertOk()
             ->assertJsonPath('data.document_id', $docB->id)
             ->assertJsonPath('data.parent_id', null);
@@ -144,7 +144,7 @@ class ItemTest extends ApiTestCase
         $docB = $this->createDocument($userB, ['name' => 'B']);
 
         $this->withHeaders($this->authHeaders($userA))
-            ->postJson("/api/documents/{$docA->id}/items/{$item->id}/move-document", ['target_document_id' => $docB->id])
+            ->postJson("/v1/documents/{$docA->id}/items/{$item->id}/move-document", ['target_document_id' => $docB->id])
             ->assertStatus(404);
 
         $this->assertSame($docA->id, Item::find($item->id)->document_id);
@@ -158,7 +158,7 @@ class ItemTest extends ApiTestCase
         $folder = $this->createDocument($user, ['type' => 'folder', 'name' => 'Folder']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$docA->id}/items/{$item->id}/move-document", ['target_document_id' => $folder->id])
+            ->postJson("/v1/documents/{$docA->id}/items/{$item->id}/move-document", ['target_document_id' => $folder->id])
             ->assertStatus(404);
     }
 
@@ -170,12 +170,12 @@ class ItemTest extends ApiTestCase
         $second = $this->createItem($user, $doc, ['content' => 'Second', 'sort_order' => 1]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$second->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$second->id}/indent")
             ->assertOk()
             ->assertJsonPath('data.parent_id', $first->id);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$second->id}/unindent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$second->id}/unindent")
             ->assertOk()
             ->assertJsonPath('data.parent_id', null);
     }
@@ -190,7 +190,7 @@ class ItemTest extends ApiTestCase
 
         // Make B the first child of A
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/indent")
             ->assertOk();
 
         // B must be the only child of A, then unindent it
@@ -198,7 +198,7 @@ class ItemTest extends ApiTestCase
         $this->assertSame((string) $a->id, (string) $b->parent_id);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/unindent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/unindent")
             ->assertOk();
 
         $order = Item::where('document_id', $doc->id)->whereNull('parent_id')->orderBy('sort_order')->get()
@@ -216,7 +216,7 @@ class ItemTest extends ApiTestCase
 
         // Indent B under A -> B must land after C1
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/indent")
             ->assertOk();
 
         $order = Item::where('document_id', $doc->id)->where('parent_id', (string) $a->id)
@@ -232,18 +232,18 @@ class ItemTest extends ApiTestCase
         $b = $this->createItem($user, $doc, ['content' => 'B', 'sort_order' => 1]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/indent")
             ->assertOk();
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/unindent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/unindent")
             ->assertOk();
 
         $b = Item::find($b->id);
         $this->assertNull($b->parent_id);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/indent")
             ->assertOk()
             ->assertJsonPath('data.parent_id', (string) $a->id);
     }
@@ -257,24 +257,24 @@ class ItemTest extends ApiTestCase
 
         // First item cannot be indented -> success, no change
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$a->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$a->id}/indent")
             ->assertOk()
             ->assertJsonPath('data.parent_id', null);
 
         // Root item cannot be unindented -> success, no change
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$a->id}/unindent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$a->id}/unindent")
             ->assertOk()
             ->assertJsonPath('data.parent_id', null);
 
         // First child cannot be indented -> success, no change
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/indent")
             ->assertOk()
             ->assertJsonPath('data.parent_id', (string) $a->id);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$b->id}/indent")
+            ->postJson("/v1/documents/{$doc->id}/items/{$b->id}/indent")
             ->assertOk()
             ->assertJsonPath('data.parent_id', (string) $a->id);
     }
@@ -293,7 +293,7 @@ class ItemTest extends ApiTestCase
         ]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->deleteJson("/api/documents/{$doc->id}/items/{$item->id}")
+            ->deleteJson("/v1/documents/{$doc->id}/items/{$item->id}")
             ->assertOk();
 
         $this->assertSoftDeleted('items', ['id' => $item->id]);
@@ -316,7 +316,7 @@ class ItemTest extends ApiTestCase
         ]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items-delete-checked")
+            ->postJson("/v1/documents/{$doc->id}/items-delete-checked")
             ->assertOk();
 
         $this->assertSoftDeleted('items', ['id' => $checked->id]);
@@ -332,7 +332,7 @@ class ItemTest extends ApiTestCase
         $child = $this->createItem($user, $doc, ['content' => 'Child', 'parent_id' => $parent->id, 'sort_order' => 0]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items/{$parent->id}/toggle-check-children")
+            ->postJson("/v1/documents/{$doc->id}/items/{$parent->id}/toggle-check-children")
             ->assertOk()
             ->assertJsonPath('data.checked', true);
 
@@ -347,7 +347,7 @@ class ItemTest extends ApiTestCase
         $this->createItem($user, $doc, ['content' => 'Belajar PHP']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items-search", ['q' => 'susu', 'match' => true])
+            ->postJson("/v1/documents/{$doc->id}/items-search", ['q' => 'susu', 'match' => true])
             ->assertOk()
             ->assertJsonPath('count', 1)
             ->assertJsonPath('data.0.content', 'Beli susu');
@@ -359,7 +359,7 @@ class ItemTest extends ApiTestCase
         $doc = $this->createDocument($user);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items", ['content' => ''])
+            ->postJson("/v1/documents/{$doc->id}/items", ['content' => ''])
             ->assertStatus(201)
             ->assertJsonPath('data.content', '');
     }
@@ -372,7 +372,7 @@ class ItemTest extends ApiTestCase
         $this->createItem($user, $doc, ['content' => 'beli susu']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items-search", ['q' => 'Susu', 'match' => true, 'case_sensitive' => true])
+            ->postJson("/v1/documents/{$doc->id}/items-search", ['q' => 'Susu', 'match' => true, 'case_sensitive' => true])
             ->assertOk()
             ->assertJsonPath('count', 1)
             ->assertJsonPath('data.0.content', 'Beli Susu');
@@ -387,7 +387,7 @@ class ItemTest extends ApiTestCase
         $this->createItem($user, $doc, ['content' => 'C', 'sort_order' => 2]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items", ['content' => 'X', 'position' => 1])
+            ->postJson("/v1/documents/{$doc->id}/items", ['content' => 'X', 'position' => 1])
             ->assertStatus(201)
             ->assertJsonPath('data.content', 'X');
 
@@ -406,7 +406,7 @@ class ItemTest extends ApiTestCase
         $doc = $this->createDocument($user);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/images", [
+            ->postJson("/v1/documents/{$doc->id}/images", [
                 'image' => $this->fakePng(),
             ])
             ->assertOk()
@@ -422,7 +422,7 @@ class ItemTest extends ApiTestCase
         $userB = $this->createUser(['email' => 'b@example.com']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->postJson("/api/documents/{$docA->id}/images", [
+            ->postJson("/v1/documents/{$docA->id}/images", [
                 'image' => $this->fakePng(),
             ])
             ->assertStatus(404);
@@ -438,7 +438,7 @@ class ItemTest extends ApiTestCase
         Storage::disk('public')->put('images/foto.png', 'fake');
 
         $this->withHeaders($this->authHeaders($user))
-            ->deleteJson("/api/documents/{$doc->id}/images", [
+            ->deleteJson("/v1/documents/{$doc->id}/images", [
                 'path' => 'images/foto.png',
             ])
             ->assertOk()
@@ -458,7 +458,7 @@ class ItemTest extends ApiTestCase
         Storage::disk('public')->put('images/foto.png', 'fake');
 
         $this->withHeaders($this->authHeaders($user))
-            ->deleteJson("/api/documents/{$doc->id}/images", [
+            ->deleteJson("/v1/documents/{$doc->id}/images", [
                 'path' => 'images/foto.png',
             ])
             ->assertStatus(404);
@@ -478,7 +478,7 @@ class ItemTest extends ApiTestCase
         $userB = $this->createUser(['email' => 'b@example.com']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->deleteJson("/api/documents/{$docA->id}/images", [
+            ->deleteJson("/v1/documents/{$docA->id}/images", [
                 'path' => 'images/foto.png',
             ])
             ->assertStatus(404);
@@ -502,17 +502,17 @@ class ItemTest extends ApiTestCase
         $item = $this->createItem($user, $doc);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson('/api/bookmarks', ['target_type' => 'item', 'target_id' => $item->id])
+            ->postJson('/v1/bookmarks', ['target_type' => 'item', 'target_id' => $item->id])
             ->assertStatus(201);
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson('/api/bookmarks')
+            ->getJson('/v1/bookmarks')
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.target_type', 'item');
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson('/api/bookmarked-documents')
+            ->getJson('/v1/bookmarked-documents')
             ->assertOk();
     }
 
@@ -525,7 +525,7 @@ class ItemTest extends ApiTestCase
         $this->createItem($user, $docB, ['content' => 'Rapat #proyek', 'checked' => true]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson('/api/finder/items?q=rapat')
+            ->getJson('/v1/finder/items?q=rapat')
             ->assertOk()
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.document_name', 'Proyek A')
@@ -541,7 +541,7 @@ class ItemTest extends ApiTestCase
         $this->createItem($userA, $docA, ['content' => 'Item rahasia user A']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->getJson('/api/finder/items?q=rahasia')
+            ->getJson('/v1/finder/items?q=rahasia')
             ->assertOk()
             ->assertJsonCount(0, 'data');
     }
@@ -553,7 +553,7 @@ class ItemTest extends ApiTestCase
         $item = $this->createItem($user, $doc, ['content' => 'Tugas penting']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson("/api/finder/items/{$item->id}")
+            ->getJson("/v1/finder/items/{$item->id}")
             ->assertOk()
             ->assertJsonPath('data.id', (string) $item->id)
             ->assertJsonPath('data.document_id', (string) $doc->id)
@@ -563,7 +563,7 @@ class ItemTest extends ApiTestCase
         $other = $this->createUser(['email' => 'locate-b@example.com']);
         $this->app['auth']->forgetGuards();
         $this->withHeaders($this->authHeaders($other))
-            ->getJson("/api/finder/items/{$item->id}")
+            ->getJson("/v1/finder/items/{$item->id}")
             ->assertStatus(404);
     }
 
@@ -573,23 +573,23 @@ class ItemTest extends ApiTestCase
         $doc = $this->createDocument($user);
 
         $created = $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items", ['content' => 'A'])
+            ->postJson("/v1/documents/{$doc->id}/items", ['content' => 'A'])
             ->assertStatus(201)
             ->assertJsonPath('data.bullet', 'checklist');
 
         $itemId = $created->json('data.id');
 
         $this->withHeaders($this->authHeaders($user))
-            ->patchJson("/api/documents/{$doc->id}/items/{$itemId}", ['bullet' => 'numbered'])
+            ->patchJson("/v1/documents/{$doc->id}/items/{$itemId}", ['bullet' => 'numbered'])
             ->assertOk()
             ->assertJsonPath('data.bullet', 'numbered');
 
         $this->withHeaders($this->authHeaders($user))
-            ->patchJson("/api/documents/{$doc->id}/items/{$itemId}", ['bullet' => 'bogus'])
+            ->patchJson("/v1/documents/{$doc->id}/items/{$itemId}", ['bullet' => 'bogus'])
             ->assertStatus(422);
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson("/api/documents/{$doc->id}/items")
+            ->getJson("/v1/documents/{$doc->id}/items")
             ->assertOk()
             ->assertJsonPath('data.0.bullet', 'numbered');
     }
@@ -607,11 +607,11 @@ class ItemTest extends ApiTestCase
         ];
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items-restore", ['items' => $snapshot])
+            ->postJson("/v1/documents/{$doc->id}/items-restore", ['items' => $snapshot])
             ->assertOk();
 
         $tree = $this->withHeaders($this->authHeaders($user))
-            ->getJson("/api/documents/{$doc->id}/items")
+            ->getJson("/v1/documents/{$doc->id}/items")
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->json('data');
@@ -632,7 +632,7 @@ class ItemTest extends ApiTestCase
         $kept = $this->createItem($user, $doc, ['content' => 'Disimpan', 'sort_order' => 1]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->deleteJson("/api/documents/{$doc->id}/items/{$item->id}")
+            ->deleteJson("/v1/documents/{$doc->id}/items/{$item->id}")
             ->assertOk();
 
         $snapshot = [
@@ -641,11 +641,11 @@ class ItemTest extends ApiTestCase
         ];
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items-restore", ['items' => $snapshot])
+            ->postJson("/v1/documents/{$doc->id}/items-restore", ['items' => $snapshot])
             ->assertOk();
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson("/api/documents/{$doc->id}/items")
+            ->getJson("/v1/documents/{$doc->id}/items")
             ->assertOk()
             ->assertJsonCount(2, 'data');
     }
@@ -662,11 +662,11 @@ class ItemTest extends ApiTestCase
         ];
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/items-restore", ['items' => $snapshot])
+            ->postJson("/v1/documents/{$doc->id}/items-restore", ['items' => $snapshot])
             ->assertOk();
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson("/api/documents/{$doc->id}/items")
+            ->getJson("/v1/documents/{$doc->id}/items")
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', (string) $kept->id);
@@ -679,7 +679,7 @@ class ItemTest extends ApiTestCase
         $userB = $this->createUser(['email' => 'r-b@example.com']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->postJson("/api/documents/{$docA->id}/items-restore", ['items' => []])
+            ->postJson("/v1/documents/{$docA->id}/items-restore", ['items' => []])
             ->assertStatus(404);
     }
 }

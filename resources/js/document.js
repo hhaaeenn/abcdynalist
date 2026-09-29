@@ -1051,9 +1051,7 @@ function buildRow(node, depth) {
         (async () => {
             commitEdit(node.id);
             try {
-                await Promise.all(
-                    tempNodes.map((n, i) => persistPastedNode(n, curParentId, curPos + 1 + i))
-                );
+                await persistPastedTree(tempNodes, curParentId, curPos + 1);
             } catch (e) {
                 showFailedAlert('Sebagian item gagal disimpan: ' + e.message);
                 loadItems();
@@ -1679,8 +1677,7 @@ async function insertDroppedFiles(dt, parentId) {
     if (!files.length && !text) return;
     recordUndo();
     let position = parentId ? childCount(parentId) : flat.filter((f) => !f.node.parent_id).length;
-    const promises = [];
-    const tempIds = [];
+
     if (!files.length) {
         const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
         const startPos = position;
@@ -1688,44 +1685,45 @@ async function insertDroppedFiles(dt, parentId) {
             const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${position}`;
             const tmpNode = { id: tmpId, parent_id: parentId, content: line, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: position, children: [] };
             insertNodeLocally(parentId, position, tmpNode);
-            tempIds.push(tmpId);
             position++;
             return tmpNode;
         });
-        // One batch-create call for every pasted/dropped line, instead of one POST per line.
-        promises.push(
-            persistPastedTree(tempNodes, parentId, startPos)
-                .then(() => ({ tmpId: null, realId: tempNodes.find((n) => !String(n.id).startsWith('tmp-'))?.id || null }))
-                .catch(() => ({ tmpId: null, realId: null }))
-        );
+        await createItemsBatch(tempNodes, parentId, startPos);
     } else {
+        const tempNodes = [];
         for (const file of files) {
             if (file.type.startsWith('image/')) {
-                promises.push(uploadImage(file).then((url) => {
-                    if (url) return api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: `![](${url})` }).then((d) => ({ tmpId: null, realId: d.data.id }));
-                    return null;
-                }).catch(() => null));
-                position++;
-                continue;
-            }
-            try {
-                const body = await file.text();
-                const lines = body.split(/\r?\n/).filter((l) => l.trim());
-                lines.forEach((line) => {
-                    promises.push(api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line.slice(0, 5000) }).then((d) => ({ tmpId: null, realId: d.data.id })).catch(() => null));
+                const url = await uploadImage(file);
+                if (url) {
+                    const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                    tempNodes.push({ id: tmpId, parent_id: parentId, content: `![](${url})`, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: position, children: [] });
+                    insertNodeLocally(parentId, position, tempNodes[tempNodes.length - 1]);
                     position++;
-                });
-            } catch {
-                promises.push(api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: `[${file.name}](${file.name})` }).then((d) => ({ tmpId: null, realId: d.data.id })).catch(() => null));
-                position++;
+                }
+            } else {
+                try {
+                    const body = await file.text();
+                    const lines = body.split(/\r?\n/).filter((l) => l.trim());
+                    for (const line of lines) {
+                        const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                        tempNodes.push({ id: tmpId, parent_id: parentId, content: line.slice(0, 5000), note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: position, children: [] });
+                        insertNodeLocally(parentId, position, tempNodes[tempNodes.length - 1]);
+                        position++;
+                    }
+                } catch {
+                    const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+                    tempNodes.push({ id: tmpId, parent_id: parentId, content: `[${file.name}](${file.name})`, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: position, children: [] });
+                    insertNodeLocally(parentId, position, tempNodes[tempNodes.length - 1]);
+                    position++;
+                }
             }
+        }
+        if (tempNodes.length) {
+            await createItemsBatch(tempNodes, parentId, position - tempNodes.length);
         }
     }
     buildFlat(); applyZoomFilter(); render();
-    const results = await Promise.all(promises);
-    const firstReal = results.find((r) => r?.realId);
-    if (firstReal) selectItem(firstReal.realId);
-    loadItems();
+    await loadItems();
 }
 
 async function doMove(id, action) {
@@ -1792,7 +1790,7 @@ async function doCopyDrop(id, action) {
     selectItem(tempNode.id);
 
     try {
-        await persistPastedNode(tempNode, parentId, position);
+        await persistPastedTree([tempNode], parentId, position);
     } catch (e) {
         showFailedAlert(e.message);
         loadItems();
@@ -2383,9 +2381,7 @@ async function pasteSnapshots(snapshots, id, mode) {
 
     (async () => {
         try {
-            for (let i = 0; i < tempNodes.length; i++) {
-                await persistPastedNode(tempNodes[i], parentId, pos + i);
-            }
+            await persistPastedTree(tempNodes, parentId, pos);
             buildFlat();
             applyZoomFilter();
             render();
@@ -2736,17 +2732,56 @@ function buildTemplateSnapshot(node) {
 }
 
 async function createItemBranch(parentId, nodes) {
-    let pos = 0;
-    for (const n of nodes) {
-        const data = await api.post(`/documents/${docId}/items`, {
-            parent_id: parentId,
-            position: pos++,
-            content: n.content,
-            bullet: n.bullet || 'bullet',
-        });
-        if (Array.isArray(n.children) && n.children.length) {
-            await createItemBranch(data.data.id, n.children);
+    if (!nodes.length) return;
+
+    const realParent = await resolveParentAsync(parentId);
+
+    const allNodes = [];
+    const collect = (ns, pid) => {
+        for (const n of ns) {
+            const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            allNodes.push({
+                tmp_id: tmpId,
+                parent_id: pid,
+                content: n.content || '',
+                note: n.note || '',
+                checked: !!n.checked,
+                heading: n.heading || 0,
+                color: n.color || null,
+                bullet: n.bullet || 'bullet',
+            });
+            if (Array.isArray(n.children) && n.children.length) {
+                collect(n.children, tmpId);
+            }
         }
+    };
+    collect(nodes, realParent);
+
+    if (!allNodes.length) return;
+
+    const batchPromise = api
+        .post(`/documents/${docId}/items-create-batch`, { items: allNodes })
+        .then((res) => res.map || {});
+
+    allNodes.forEach((it) => registerPendingItem(it.tmp_id, batchPromise.then((map) => map[it.tmp_id] || null)));
+
+    let map;
+    try {
+        map = await batchPromise;
+    } catch (e) {
+        allNodes.forEach((it) => unregisterPendingItem(it.tmp_id));
+        throw e;
+    }
+
+    const idMap = new Map();
+    allNodes.forEach((it) => {
+        const realId = map[it.tmp_id];
+        unregisterPendingItem(it.tmp_id);
+        if (realId) idMap.set(it.tmp_id, realId);
+    });
+
+    for (const [tmpId, realId] of idMap) {
+        rememberId(tmpId, realId);
     }
 }
 
@@ -3519,10 +3554,14 @@ async function enterCreateSiblingSplit(id) {
     const node = rec.node;
     if (hasChildren) {
         const pos = siblingPosition(node) + 1;
-        const data = await api.post(`/documents/${docId}/items`, { parent_id: node.parent_id || null, position: pos, content: tail, bullet: node.bullet || defaultBullet });
-        const newId = data.data.id;
-        const newNode = { ...data.data, children: [] };
-        insertNodeLocally(node.parent_id || null, pos, newNode);
+        const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const tempNode = { id: tmpId, parent_id: node.parent_id || null, content: tail, note: '', checked: false, heading: 0, color: null, bullet: node.bullet || defaultBullet, tags: [], sort_order: pos, children: [] };
+        insertNodeLocally(node.parent_id || null, pos, tempNode);
+        buildFlat(); applyZoomFilter(); render();
+        const realIds = await createItemsBatch([tempNode], node.parent_id || null, pos);
+        const newId = realIds[0];
+        if (!newId) return;
+        const newNode = { ...tempNode, id: newId };
         if (!collapsed.has(id)) {
             const children = flat.filter((f) => f.node.parent_id === node.id).map((f) => f.node);
             const oldParent = findNodeInTree(id);
@@ -4111,6 +4150,60 @@ async function createItemAt(parentId, position, bullet, content) {
         showFailedAlert(e.message);
         return null;
     }
+}
+
+async function createItemsBatch(nodes, parentId, startPos) {
+    if (!nodes.length) return [];
+
+    const realParent = await resolveParentAsync(parentId);
+
+    const items = nodes.map((node, i) => ({
+        tmp_id: node.id,
+        parent_id: realParent,
+        position: startPos + i,
+        content: node.content || '',
+        note: node.note || '',
+        checked: !!node.checked,
+        heading: node.heading || 0,
+        color: node.color || null,
+        bullet: node.bullet || 'bullet',
+    }));
+
+    const batchPromise = api
+        .post(`/documents/${docId}/items-create-batch`, { items })
+        .then((res) => res.map || {});
+
+    items.forEach((it) => registerPendingItem(it.tmp_id, batchPromise.then((map) => map[it.tmp_id] || null)));
+
+    let map;
+    try {
+        map = await batchPromise;
+    } catch (e) {
+        items.forEach((it) => unregisterPendingItem(it.tmp_id));
+        throw e;
+    }
+
+    const realIds = [];
+    nodes.forEach((node) => {
+        const realId = map[node.id];
+        unregisterPendingItem(node.id);
+        if (realId) {
+            node.id = realId;
+            node.parent_id = realParent;
+            rememberId(node.id, realId);
+            if (selectedId === node.id) selectedId = realId;
+            if (multi.has(node.id)) { multi.delete(node.id); multi.add(realId); }
+            const rec = rows.get(node.id);
+            if (rec) {
+                rows.delete(node.id);
+                rows.set(realId, rec);
+                rec.node = node;
+                if (rec.row) rec.row.dataset.id = realId;
+            }
+            realIds.push(realId);
+        }
+    });
+    return realIds;
 }
 
 async function addItem() {
@@ -5565,27 +5658,28 @@ function wireOutline() {
             const pos = selRec ? siblingPosition(selRec.node) + 1 : flat.filter((f) => !f.node.parent_id).length;
             insertNodeLocally(parentId, pos, node);
             buildFlat(); applyZoomFilter(); render(); selectItem(tempId);
-            const promise = api.post(`/documents/${docId}/items`, { parent_id: parentId, content: node.content, bullet: node.bullet }).then((d) => d.data.id);
-            registerPendingItem(tempId, promise);
-            promise.then((realId) => {
-                node.id = realId;
-                const rec = rows.get(tempId);
-                if (rec) { rows.delete(tempId); rows.set(realId, rec); rec.node = node; if (rec.row) rec.row.dataset.id = realId; }
-                if (selectedId === tempId) selectedId = realId;
-                unregisterPendingItem(tempId);
-                reparentTempChildren(tempId, realId);
-            }).catch(() => { removeNodeLocally(tempId); unregisterPendingItem(tempId); });
+
             const permanentUrl = await uploadImage(file);
-            if (permanentUrl) {
-                URL.revokeObjectURL(blobUrl);
-                node.content = `![](${permanentUrl})`;
-                const realId = await promise.catch(() => null);
-                if (realId) {
-                    const rec = rows.get(realId);
-                    if (rec) { rec.node = node; if (rec.text) { rec.text.innerHTML = contentHtml(node.content); wireInlineImages(rec.text, realId); } }
-                }
-                queuePatch(docId, realId || tempId, { content: node.content });
+            if (!permanentUrl) {
+                removeNodeLocally(tempId);
+                unregisterPendingItem(tempId);
+                buildFlat(); applyZoomFilter(); render();
+                return;
             }
+
+            node.content = `![](${permanentUrl})`;
+            URL.revokeObjectURL(blobUrl);
+
+            const realIds = await createItemsBatch([node], parentId, pos);
+            const realId = realIds[0];
+            if (!realId) return;
+
+            const rec = rows.get(realId);
+            if (rec) {
+                rec.node = node;
+                if (rec.text) { rec.text.innerHTML = contentHtml(node.content); wireInlineImages(rec.text, realId); }
+            }
+            queuePatch(docId, realId, { content: node.content });
             return;
         }
         const parsed = parseClipboardItems(e.clipboardData);

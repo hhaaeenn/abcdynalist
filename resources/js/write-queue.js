@@ -445,7 +445,7 @@ function flushOnUnload(documentId) {
 
     for (const call of calls) {
         if (call.kind === 'patch') {
-            beaconWrite(call.path, call.body);
+            beaconWrite(call.path, call.body).catch(() => {});
         } else {
             requeue(s, call);
         }

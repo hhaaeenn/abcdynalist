@@ -1,4 +1,4 @@
-import { api, clearAuth } from './api';
+import { api, clearAuth, registerPendingItem, unregisterPendingItem } from './api';
 import { toast } from './ui';
 import { showFailedAlert } from './alerts';
 import { store } from './store';
@@ -566,25 +566,49 @@ function parseOutline(o) {
 }
 
 async function createItemTree(documentId, roots) {
-    const queue = roots.map((node) => ({ node, parentId: null }));
-    let count = 0;
-    while (queue.length) {
-        const level = queue.splice(0);
-        const created = await Promise.all(level.map(async ({ node, parentId }) => {
-            const res = await api.post(`/documents/${documentId}/items`, {
+    if (!roots.length) return 0;
+
+    const allNodes = [];
+    const collect = (nodes, parentId) => {
+        for (const node of nodes) {
+            const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            allNodes.push({
+                tmp_id: tmpId,
                 parent_id: parentId,
-                content: node.text,
+                content: node.text || '',
                 note: node.note || '',
-                checked: node.checked,
+                checked: !!node.checked,
+                heading: 0,
+                color: null,
+                bullet: 'bullet',
             });
-            return { node, id: res.data.id };
-        }));
-        count += created.length;
-        created.forEach(({ node, id }) => {
-            node.children.forEach((child) => queue.push({ node: child, parentId: id }));
-        });
+            if (node.children && node.children.length) {
+                collect(node.children, tmpId);
+            }
+        }
+    };
+    collect(roots, null);
+
+    const batchPromise = api
+        .post(`/documents/${documentId}/items-create-batch`, { items: allNodes })
+        .then((res) => res.map || {});
+
+    allNodes.forEach((it) => registerPendingItem(it.tmp_id, batchPromise.then((map) => map[it.tmp_id] || null)));
+
+    let map;
+    try {
+        map = await batchPromise;
+    } catch (e) {
+        allNodes.forEach((it) => unregisterPendingItem(it.tmp_id));
+        throw e;
     }
-    return count;
+
+    allNodes.forEach((it) => {
+        const realId = map[it.tmp_id];
+        unregisterPendingItem(it.tmp_id);
+    });
+
+    return allNodes.length;
 }
 
 async function importOpml(file) {
