@@ -999,6 +999,7 @@ function buildRow(node, depth) {
             return;
         }
         e.preventDefault();
+        e.stopPropagation();
         const parsed = parseClipboardItems(e.clipboardData);
         if (!parsed.length) return;
         // Single line: just insert into current item at caret
@@ -5641,7 +5642,7 @@ function wireToolbar() {
 
 function wireOutline() {
     els.outline.addEventListener('paste', async (e) => {
-        if (e.target.closest('.item-text')) return;
+        if (e.target?.closest?.('.item-text')) return;
         const imgItem = [...(e.clipboardData?.items || [])].find((it) => it.type.startsWith('image/'));
         if (imgItem) {
             e.preventDefault();
