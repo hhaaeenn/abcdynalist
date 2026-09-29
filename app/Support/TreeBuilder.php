@@ -36,12 +36,27 @@ class TreeBuilder
             }
         }
 
-        $attach = function (array $nodes) use (&$attach, &$children, $withChildren) {
+        $visited = [];
+        $maxDepth = 1000;
+
+        $attach = function (array $nodes, int $depth = 0) use (&$attach, &$children, $withChildren, &$visited, $maxDepth) {
+            if ($depth > $maxDepth) {
+                return [];
+            }
+
             $result = [];
             foreach (self::sortNodes($nodes) as $node) {
-                $sub = $children[$node->id] ?? [];
+                $nodeId = (string) $node->id;
+
+                // Cycle detection
+                if (isset($visited[$nodeId])) {
+                    continue;
+                }
+                $visited[$nodeId] = true;
+
+                $sub = $children[$nodeId] ?? [];
                 if ($sub) {
-                    $node->children = $attach($sub);
+                    $node->children = $attach($sub, $depth + 1);
                 } elseif ($withChildren) {
                     $node->children = [];
                 }

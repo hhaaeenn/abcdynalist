@@ -38,27 +38,41 @@ class ItemController extends Controller
 
     public function index(Request $request, $documentId)
     {
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        $document = Document::where('user_id', $user->id)->find($documentId);
+            $document = Document::where('user_id', $user->id)->find($documentId);
 
-        if (! $document) {
+            if (! $document) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Document not found',
+                ], 404);
+            }
+
+            $items = Item::where('document_id', $documentId)
+                ->orderBy('sort_order')
+                ->get();
+
+            $tree = TreeBuilder::build($items);
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $tree,
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('Items index error', [
+                'documentId' => $documentId,
+                'userId' => $request->user()->id ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'status' => 'error',
-                'message' => 'Document not found',
-            ], 404);
+                'message' => 'Failed to load items',
+            ], 500);
         }
-
-        $items = Item::where('document_id', $documentId)
-            ->orderBy('sort_order')
-            ->get();
-
-        $tree = TreeBuilder::build($items);
-
-        return response()->json([
-            'status' => 'success',
-            'data' => $tree,
-        ]);
     }
 
     public function store(Request $request, $documentId)
