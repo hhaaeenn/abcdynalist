@@ -53,7 +53,7 @@ export async function awaitTempId(tempId) {
     return real || null;
 }
 
-export async function request(path, { method = 'GET', body } = {}) {
+export async function request(path, { method = 'GET', body, keepalive = false } = {}) {
     if (pendingItems.size) {
         const segs = path.split('/');
         for (let i = 0; i < segs.length; i++) {
@@ -74,6 +74,7 @@ export async function request(path, { method = 'GET', body } = {}) {
         method,
         headers,
         body: isFormData ? body : body ? JSON.stringify(body) : undefined,
+        keepalive,
     });
 
     let data = null;
@@ -108,6 +109,27 @@ export const api = {
     patch: (path, body) => writeWithStatus(() => request(path, { method: 'PATCH', body })),
     delete: (path, body) => writeWithStatus(() => request(path, { method: 'DELETE', body })),
 };
+
+/**
+ * Perform a request without the save-status side effects.
+ *
+ * The write queue needs this: a single flush may carry hundreds of items, and emitting
+ * dyn:save-start/end per request makes the "Tersimpan" indicator flicker once per row.
+ */
+export function requestRaw(path, { method = 'GET', body, keepalive = false } = {}) {
+    return request(path, { method, body, keepalive });
+}
+
+/**
+ * Fire-and-forget write used when the page is going away.
+ *
+ * A plain fetch is cancelled on unload, which silently drops the user's last edits, so
+ * `keepalive: true` is required. sendBeacon is not an option here because it cannot send
+ * an Authorization header and this app authenticates with a Bearer token, not a cookie.
+ */
+export function beaconWrite(path, body) {
+    return request(path, { method: 'POST', body, keepalive: true });
+}
 
 async function writeWithStatus(run) {
     window.dispatchEvent(new CustomEvent('dyn:save-start'));

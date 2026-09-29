@@ -53,6 +53,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/documents/{documentId}/items', [ItemController::class, 'index']);
     Route::post('/documents/{documentId}/items', [ItemController::class, 'store']);
+    Route::post('/documents/{documentId}/items-create-batch', [ItemController::class, 'createBatch']);
+    Route::patch('/documents/{documentId}/items-batch', [ItemController::class, 'updateBatch']);
+    // POST alias: sendBeacon() cannot issue PATCH, and it is the most reliable way to
+    // flush pending edits on page unload.
+    Route::post('/documents/{documentId}/items-batch', [ItemController::class, 'updateBatch']);
+    Route::post('/documents/{documentId}/items-indent-batch', [ItemController::class, 'indentBatch']);
+    Route::post('/documents/{documentId}/items-unindent-batch', [ItemController::class, 'unindentBatch']);
+    Route::post('/documents/{documentId}/items-move-batch', [ItemController::class, 'moveBatch']);
     Route::get('/documents/{documentId}/trash', [ItemController::class, 'trashed']);
     Route::delete('/documents/{documentId}/trash', [ItemController::class, 'emptyTrash']);
     Route::post('/documents/{documentId}/items/{id}/restore', [ItemController::class, 'restoreItem']);

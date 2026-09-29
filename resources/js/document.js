@@ -1,4 +1,5 @@
 import { api, registerPendingItem, unregisterPendingItem, awaitTempId } from './api';
+import { queuePatch, queuePatches, queueStructure, queueMoves, queueDelete, flushNow, whenSettled, hasPending, dropPending, resetQueue } from './write-queue';
 import { toast } from './ui';
 import { store } from './store';
 import { showSuccess, showFailedAlert, esc, showPopupWithAction } from './alerts';
@@ -62,7 +63,7 @@ let notesOverride = null;
 
 let isSelecting = false;
 
-// ── block/drag select antar item (mirip Dynalist) ──────────────────────
+// â”€â”€ block/drag select antar item (mirip Dynalist) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let blockSelectStartId = null;
 let blockSelectActive = false;
 let suppressNextRowClick = false;
@@ -148,7 +149,7 @@ function notifyDueReminders() {
     for (const r of due) {
         const rel = r.node.document_id === docId ? '' : ' (dokumen lain)';
         try {
-            new Notification('ABCLIST — Pengingat', {
+            new Notification('ABCLIST â€” Pengingat', {
                 body: `"${(r.node.content || '(tanpa judul)').slice(0, 120)}"${rel}\nJatuh tempo ${r.at.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}`,
             });
         } catch {
@@ -325,6 +326,9 @@ function showFolder(node) {
 async function loadItems() {
     if (!docId) return;
     const id = docId;
+    // Never discard queued edits: push them out before refetching, otherwise a debounced
+    // keystroke would be lost the moment anything triggers a reload.
+    await flushNow(id).catch(() => {});
     els.outline.innerHTML = '';
     try {
         const data = await api.get(`/documents/${id}/items`);
@@ -427,13 +431,13 @@ function parseClipboardItems(clipboardData) {
                             if (node.nodeType === 3) textNodes.push(node.textContent);
                         }
                         const liText = textNodes.join('').trim();
-                        if (liText) items.push({ content: liText.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
+                        if (liText) items.push({ content: liText.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
                         const subList = child.querySelector('ul, ol');
                         if (subList) walk(subList, depth + 1);
                     } else {
                         const text = child.textContent.trim();
                         if (text && !child.querySelector('ul, ol, li')) {
-                            items.push({ content: text.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
+                            items.push({ content: text.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
                         } else {
                             walk(child, depth);
                         }
@@ -474,7 +478,7 @@ function parsePlainTextItems(text) {
             const spaces = (leadMatch[2] || '').length;
             if (spaces > 0) indent += Math.floor(spaces / 2) || (spaces > 0 ? 1 : 0);
         }
-        const content = raw.replace(/^[\t ]+/, '').replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
+        const content = raw.replace(/^[\t ]+/, '').replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, '');
         items.push({ content, indent });
     }
     return items;
@@ -643,7 +647,7 @@ function buildRow(node, depth) {
 
     const bulletType = node.bullet === 'checklist' ? 'checklist' : node.bullet === 'numbered' ? 'numbered' : 'bullet';
 
-    // ── chevron (collapse/expand) ─────────────────────────────────────────
+    // â”€â”€ chevron (collapse/expand) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const chevronWrap = document.createElement('div');
     chevronWrap.className = 'shrink-0 mt-[4px] w-3 h-4 flex items-center justify-center';
 
@@ -666,7 +670,7 @@ function buildRow(node, depth) {
         chevronWrap.append(chevron);
     }
 
-    // ── bullet ────────────────────────────────────────────────────────────
+    // â”€â”€ bullet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let bullet;
     if (bulletType === 'checklist') {
         bullet = document.createElement('button');
@@ -675,7 +679,7 @@ function buildRow(node, depth) {
         bullet.className = 'bullet item-checkbox shrink-0 w-[15px] h-[15px] flex items-center justify-center rounded-[3px] border transition-all cursor-pointer';
         if (node.checked) bullet.classList.add('checked');
         else bullet.classList.add('unchecked');
-        bullet.title = node.checked ? 'Klik untuk batal tandai · seret untuk memindahkan' : 'Klik untuk tandai selesai · seret untuk memindahkan';
+        bullet.title = node.checked ? 'Klik untuk batal tandai Â· seret untuk memindahkan' : 'Klik untuk tandai selesai Â· seret untuk memindahkan';
         bullet.innerHTML = node.checked ? SVG.check : '';
         bullet.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -694,11 +698,11 @@ function buildRow(node, depth) {
         }
         if (bulletType === 'numbered') {
             bullet.classList.add('numbered-bullet');
-            bullet.title = 'Item bernomor · seret untuk memindahkan';
+            bullet.title = 'Item bernomor Â· seret untuk memindahkan';
             bullet.innerHTML = `<span class="numbered-num">${numberedLabel(node)}</span>`;
         } else {
             bullet.title = Array.isArray(node.children) && node.children.length
-                ? 'Klik untuk ciutkan/bentangkan · seret untuk memindahkan'
+                ? 'Klik untuk ciutkan/bentangkan Â· seret untuk memindahkan'
                 : 'Seret untuk memindahkan';
             bullet.innerHTML = '<span class="bullet-disc"></span>';
         }
@@ -746,7 +750,7 @@ function buildRow(node, depth) {
 
     initTouchDrag(bullet, node);
 
-    // ── zoom & menu icons (absolutely positioned overlay, khas ABCLIST) ─────
+    // â”€â”€ zoom & menu icons (absolutely positioned overlay, khas ABCLIST) â”€â”€â”€â”€â”€
     const zoomBtn = document.createElement('button');
     zoomBtn.type = 'button';
     zoomBtn.className = 'item-zoom absolute right-full mr-px opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto w-[18px] h-[18px] flex items-center justify-center rounded text-[#8a857e] hover:text-[#c07a12] hover:bg-black/[0.06] transition-all z-10';
@@ -771,7 +775,7 @@ function buildRow(node, depth) {
     bulletZone.className = 'bullet-zone relative shrink-0 flex items-center gap-0.5 mt-[3px]';
     bulletZone.append(chevronWrap, bullet, zoomBtn, menuBtn);
 
-    // ── konten teks ───────────────────────────────────────────────────────
+    // â”€â”€ konten teks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const cell = document.createElement('div');
     cell.className = 'flex-1 min-w-0';
 
@@ -799,7 +803,7 @@ function buildRow(node, depth) {
         noteEl = document.createElement('div');
         noteEl.className = 'item-note mt-0.5 text-[12.5px] text-[#8a857e]';
         if (notesMode === 'first') {
-            noteEl.innerHTML = contentHtml(node.note.split('\n')[0] + (node.note.includes('\n') ? ' …' : ''));
+            noteEl.innerHTML = contentHtml(node.note.split('\n')[0] + (node.note.includes('\n') ? ' â€¦' : ''));
         } else {
             noteEl.innerHTML = contentHtml(node.note);
         }
@@ -810,7 +814,7 @@ function buildRow(node, depth) {
     cell.append(text);
     if (noteEl) cell.append(noteEl);
 
-    // ── tombol hapus (kanan) ──────────────────────────────────────────────
+    // â”€â”€ tombol hapus (kanan) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'item-del opacity-0 group-hover:opacity-100 shrink-0 mt-[3px] w-5 h-5 flex items-center justify-center rounded text-[#8a857e] hover:text-red-600 transition-opacity';
@@ -821,7 +825,7 @@ function buildRow(node, depth) {
         deleteItem(node.id);
     });
 
-    // ── badge children collapsed ──────────────────────────────────────────
+    // â”€â”€ badge children collapsed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const actions = document.createElement('div');
     actions.className = 'flex items-center gap-0.5';
     const backlinkCount = backlinkCounts[node.id] || 0;
@@ -859,7 +863,7 @@ function buildRow(node, depth) {
     }
     actions.append(del);
 
-    // ── susun baris ───────────────────────────────────────────────────────
+    // â”€â”€ susun baris â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // urutan: [bulletZone] [cell] [actions]
     row.append(bulletZone);
     row.append(cell, actions);
@@ -867,7 +871,7 @@ function buildRow(node, depth) {
     row.dataset.id = node.id;
     rows.set(node.id, { row, text, bullet, cell, node });
 
-    // ── event baris ───────────────────────────────────────────────────────
+    // â”€â”€ event baris â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     row.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
         if (e.target.closest('.bullet') ||
@@ -989,7 +993,7 @@ function buildRow(node, depth) {
                 const fresh = contentFromElement(text);
                 if (fresh !== (node.content || '')) {
                     node.content = fresh;
-                    api.patch(`/documents/${docId}/items/${node.id}`, { content: fresh }).catch(() => {});
+                    queuePatch(docId, node.id, { content: fresh });
                 }
             }
             return;
@@ -1020,7 +1024,7 @@ function buildRow(node, depth) {
         const curPos = siblingPosition(curNode);
 
         // Susun snapshot bercabang dari daftar {content, indent} yang flat,
-        // lalu insert LOKAL & render dulu (instan) — baru simpan ke server
+        // lalu insert LOKAL & render dulu (instan) â€” baru simpan ke server
         // di background, tiap cabang top-level diparalelkan.
         const buildSnapshotTree = (lines) => {
             const root = { children: [] };
@@ -1045,11 +1049,7 @@ function buildRow(node, depth) {
         if (lastTop) selectItem(lastTop.id);
 
         (async () => {
-            try {
-                await commitEdit(node.id);
-            } catch {
-                // commitEdit sudah menangani error & alert-nya sendiri
-            }
+            commitEdit(node.id);
             try {
                 await Promise.all(
                     tempNodes.map((n, i) => persistPastedNode(n, curParentId, curPos + 1 + i))
@@ -1299,11 +1299,7 @@ async function deleteImage(id, url) {
         api.delete(`/documents/${docId}/images`, { path }).catch(() => {});
     }
     if (next !== content) {
-        api.patch(`/documents/${docId}/items/${id}`, { content: next }).catch((e) => {
-            rec.node.content = content;
-            render();
-            showFailedAlert(e.message);
-        });
+        queuePatch(docId, id, { content: next });
     }
 }
 
@@ -1393,7 +1389,7 @@ async function bulkComplete(checked) {
     targets.forEach((f) => { f.node.checked = checked; });
     clearMulti();
     render();
-    Promise.all(targets.map((f) => api.patch(`/documents/${docId}/items/${f.node.id}`, { checked }).catch(() => {}))).catch(() => loadItems());
+    queuePatches(docId, targets.map((f) => [f.node.id, { checked }]));
 }
 
 async function bulkDelete() {
@@ -1429,13 +1425,8 @@ async function bulkDelete() {
     render();
     const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
     if (target) selectItem(target.node.id);
-    try {
-        await api.post(`/documents/${docId}/items-delete-batch`, { ids: [...allIds] });
-        toast(`${allIds.size} item dihapus. Pulihkan dari Trash.`);
-    } catch (e) {
-        showFailedAlert('Gagal menghapus: ' + e.message);
-        loadItems();
-    }
+    queueDelete(docId, [...allIds]);
+    toast(`${allIds.size} item dihapus. Pulihkan dari Trash.`);
 }
 
 async function openLinkPicker(id) {
@@ -1580,7 +1571,7 @@ function stopDragScroll() {
 
 document.addEventListener('dragend', stopDragScroll);
 
-// ── drag item lewat sentuhan (long-press pada bullet) ────────────────────
+// â”€â”€ drag item lewat sentuhan (long-press pada bullet) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function initTouchDrag(bullet, node) {
     bullet.addEventListener('touchstart', (e) => {
         if (editing || e.touches.length !== 1) return;
@@ -1692,14 +1683,21 @@ async function insertDroppedFiles(dt, parentId) {
     const tempIds = [];
     if (!files.length) {
         const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-        lines.forEach((line) => {
+        const startPos = position;
+        const tempNodes = lines.map((line) => {
             const tmpId = `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}${position}`;
             const tmpNode = { id: tmpId, parent_id: parentId, content: line, note: '', checked: false, heading: 0, color: null, bullet: defaultBullet, tags: [], sort_order: position, children: [] };
             insertNodeLocally(parentId, position, tmpNode);
             tempIds.push(tmpId);
-            promises.push(api.post(`/documents/${docId}/items`, { parent_id: parentId, position, content: line }).then((d) => ({ tmpId, realId: d.data.id })).catch(() => ({ tmpId, realId: null })));
             position++;
+            return tmpNode;
         });
+        // One batch-create call for every pasted/dropped line, instead of one POST per line.
+        promises.push(
+            persistPastedTree(tempNodes, parentId, startPos)
+                .then(() => ({ tmpId: null, realId: tempNodes.find((n) => !String(n.id).startsWith('tmp-'))?.id || null }))
+                .catch(() => ({ tmpId: null, realId: null }))
+        );
     } else {
         for (const file of files) {
             if (file.type.startsWith('image/')) {
@@ -1762,10 +1760,7 @@ async function doMove(id, action) {
     node.parent_id = parentId;
     insertNodeLocally(parentId, position, node);
     buildFlat(); applyZoomFilter(); render(); selectItem(id);
-    api.post(`/documents/${docId}/items/${id}/move`, { parent_id: parentId, position }).catch((e) => {
-        showFailedAlert(e.message);
-        loadItems();
-    });
+    queueMoves(docId, [{ id, parent_id: parentId, position }]);
 }
 
 async function doCopyDrop(id, action) {
@@ -1816,14 +1811,14 @@ async function doMoveMany(ids, action) {
         });
     if (!ordered.length) return;
     recordUndo();
-    const promises = [];
+    const moves = [];
     if (action.type === 'child') {
         const base = childCount(target.id);
         ordered.forEach((n, i) => {
             removeNodeLocally(n.id);
             n.parent_id = target.id;
             insertNodeLocally(target.id, base + i, n);
-            promises.push(api.post(`/documents/${docId}/items/${n.id}/move`, { parent_id: target.id, position: base + i }).catch(() => {}));
+            moves.push({ id: n.id, parent_id: target.id, position: base + i });
         });
     } else {
         const parentId = target.parent_id || null;
@@ -1832,11 +1827,11 @@ async function doMoveMany(ids, action) {
             removeNodeLocally(n.id);
             n.parent_id = parentId;
             insertNodeLocally(parentId, base + i, n);
-            promises.push(api.post(`/documents/${docId}/items/${n.id}/move`, { parent_id: parentId, position: base + i }).catch(() => {}));
+            moves.push({ id: n.id, parent_id: parentId, position: base + i });
         });
     }
     buildFlat(); applyZoomFilter(); render(); selectItem(ordered[ordered.length - 1].id);
-    Promise.all(promises).then(() => loadItems()).catch(() => loadItems());
+    queueMoves(docId, moves);
 }
 
 function openNoteEditor(id) {
@@ -1859,14 +1854,9 @@ function openNoteEditor(id) {
         ta.remove();
         if (save && value !== (rec.node.note || '')) {
             recordUndo();
-            const prev = rec.node.note;
             rec.node.note = value;
             render();
-            api.patch(`/documents/${docId}/items/${id}`, { note: value }).catch((e) => {
-                rec.node.note = prev;
-                render();
-                showFailedAlert(e.message);
-            });
+            queuePatch(docId, id, { note: value });
         } else if (!save) {
             render();
         }
@@ -1910,7 +1900,7 @@ function openListExportDialog(itemId) {
     Swal.fire({
         title: 'Export list',
         html: `<div class="text-left">
-            <p class="mb-2 text-[13px]">Export <b>${esc(label || '(tanpa nama)')}</b> beserta sub-itemnya — salin konten di bawah atau unduh sebagai file.</p>
+            <p class="mb-2 text-[13px]">Export <b>${esc(label || '(tanpa nama)')}</b> beserta sub-itemnya â€” salin konten di bawah atau unduh sebagai file.</p>
             <div class="flex items-center gap-2">
                 <select id="list-export-format" class="flex-1 rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[13px] bg-white">
                     <option value="markdown">Markdown (.md)</option>
@@ -2299,50 +2289,75 @@ function buildTempNodeFromSnapshot(snap, parentId) {
     return node;
 }
 
-async function persistPastedNode(node, parentId, position) {
-    const tempId = node.id;
+/**
+ * Persist a whole pasted tree (possibly hundreds of lines, nested) with one HTTP call.
+ *
+ * The old version (`persistPastedNode`) recursed depth-first, awaiting each parent's real
+ * id from the server before it could even send its children — a paste of N nested lines
+ * cost N sequential round trips. Here every node keeps its local tmp id, the entire tree is
+ * flattened into one list (parents always ahead of their children), and the server mints
+ * every real id and resolves the parent links itself in a single request.
+ */
+async function persistPastedTree(tempNodes, parentId, startPos) {
     const realParent = await resolveParentAsync(parentId);
-    const promise = api
-        .post(`/documents/${docId}/items`, {
-            parent_id: realParent,
-            position,
+
+    const items = [];
+    const flatten = (node, pid, pos) => {
+        items.push({
+            tmp_id: node.id,
+            parent_id: pid,
+            position: pos,
             content: node.content || '',
             note: node.note || '',
             checked: !!node.checked,
             heading: node.heading || 0,
             color: node.color || null,
             bullet: node.bullet || 'bullet',
-        })
-        .then((res) => res.data.id)
-        .catch((e) => {
-            unregisterPendingItem(tempId);
-            throw e;
         });
-    registerPendingItem(tempId, promise);
-    const realId = await promise;
-    node.id = realId;
-    node.parent_id = realParent;
-    rememberId(tempId, realId);
-    if (selectedId === tempId) selectedId = realId;
-    if (multi.has(tempId)) { multi.delete(tempId); multi.add(realId); }
-    if (selAnchor === tempId) selAnchor = realId;
-    if (selEdge === tempId) selEdge = realId;
-    if (collapsed.has(tempId)) { collapsed.delete(tempId); collapsed.add(realId); }
-    const rec = rows.get(tempId);
-    if (rec) {
-        rows.delete(tempId);
-        rows.set(realId, rec);
-        rec.node = node;
-        if (rec.row) rec.row.dataset.id = realId;
+        (node.children || []).forEach((child, i) => flatten(child, node.id, i));
+    };
+    tempNodes.forEach((node, i) => flatten(node, realParent, startPos + i));
+
+    if (!items.length) return;
+
+    const batchPromise = api
+        .post(`/documents/${docId}/items-create-batch`, { items })
+        .then((res) => res.map || {});
+
+    items.forEach((it) => registerPendingItem(it.tmp_id, batchPromise.then((map) => map[it.tmp_id] || null)));
+
+    let map;
+    try {
+        map = await batchPromise;
+    } catch (e) {
+        items.forEach((it) => unregisterPendingItem(it.tmp_id));
+        throw e;
     }
-    unregisterPendingItem(tempId);
-    reparentTempChildren(tempId, realId);
-    if (Array.isArray(node.children) && node.children.length) {
-        for (let i = 0; i < node.children.length; i++) {
-            await persistPastedNode(node.children[i], realId, i);
+
+    const applyRemap = (node, resolvedParentId) => {
+        const tempId = node.id;
+        const realId = map[tempId];
+        unregisterPendingItem(tempId);
+        if (!realId) return;
+
+        node.id = realId;
+        node.parent_id = resolvedParentId;
+        rememberId(tempId, realId);
+        if (selectedId === tempId) selectedId = realId;
+        if (multi.has(tempId)) { multi.delete(tempId); multi.add(realId); }
+        if (selAnchor === tempId) selAnchor = realId;
+        if (selEdge === tempId) selEdge = realId;
+        if (collapsed.has(tempId)) { collapsed.delete(tempId); collapsed.add(realId); }
+        const rec = rows.get(tempId);
+        if (rec) {
+            rows.delete(tempId);
+            rows.set(realId, rec);
+            rec.node = node;
+            if (rec.row) rec.row.dataset.id = realId;
         }
-    }
-    return realId;
+        (node.children || []).forEach((child) => applyRemap(child, realId));
+    };
+    tempNodes.forEach((node) => applyRemap(node, realParent));
 }
 
 async function pasteSnapshots(snapshots, id, mode) {
@@ -2475,7 +2490,7 @@ function menuItemsFor(node) {
             ],
         });
     }
-    items.push({ label: 'Search and replace…', action: () => openSr() });
+    items.push({ label: 'Search and replaceâ€¦', action: () => openSr() });
     items.push('sep');
 
     if (siblingPosition(node) > 0) {
@@ -2500,7 +2515,7 @@ function menuItemsFor(node) {
             },
         });
     }
-    items.push({ label: 'Move to…', shortcut: 'Ctrl+Shift+M', action: () => openMovePicker(node.id) });
+    items.push({ label: 'Move toâ€¦', shortcut: 'Ctrl+Shift+M', action: () => openMovePicker(node.id) });
 
     const userTpls = getUserTemplates();
     const tplChildren = [
@@ -2510,7 +2525,7 @@ function menuItemsFor(node) {
         })),
     ];
     if (userTpls.length) {
-        tplChildren.push({ label: '—' });
+        tplChildren.push({ label: 'â€”' });
         userTpls.forEach((t) => {
             tplChildren.push({
                 label: t.name,
@@ -2518,13 +2533,13 @@ function menuItemsFor(node) {
             });
         });
     }
-    items.push({ label: 'Insert template…', children: tplChildren });
+    items.push({ label: 'Insert templateâ€¦', children: tplChildren });
     if (hasChildren || node.content) {
-        items.push({ label: 'Save as template…', action: () => saveAsTemplate(node.id) });
+        items.push({ label: 'Save as templateâ€¦', action: () => saveAsTemplate(node.id) });
     }
     items.push('sep');
 
-    // Checkbox — tampilkan sesuai state saat ini (persis ABCLIST)
+    // Checkbox â€” tampilkan sesuai state saat ini (persis ABCLIST)
     const isChecklist = (node.bullet || 'bullet') === 'checklist';
     if (!isChecklist) {
         items.push({ label: 'Add checkbox', shortcut: 'Ctrl+Shift+C', action: () => setBullet(node.id, 'checklist') });
@@ -2548,11 +2563,11 @@ function menuItemsFor(node) {
     }
     items.push('sep');
 
-    items.push({ label: 'Manage sharing…', action: () => openItemSharing() });
+    items.push({ label: 'Manage sharingâ€¦', action: () => openItemSharing() });
     items.push({ label: 'Get link', action: () => copyItemLink(node.id) });
     items.push({ label: 'Copy internal link', action: () => copyInternalLink(node.id) });
     items.push({ label: 'Show all references', action: () => openBacklinks(node.id) });
-    items.push({ label: 'Export…', action: () => openListExportDialog(node.id) });
+    items.push({ label: 'Exportâ€¦', action: () => openListExportDialog(node.id) });
     const inboxDoc = findInbox();
     if (inboxDoc) {
         items.push({
@@ -2584,7 +2599,7 @@ function menuItemsFor(node) {
     const headings = [['Clear heading', 0], ['H1', 1], ['H2', 2], ['H3', 3]];
     headings.forEach(([label, h]) => {
         items.push({
-            label: (node.heading || 0) === h ? `✓ ${label}` : label,
+            label: (node.heading || 0) === h ? `âœ“ ${label}` : label,
             action: () => setHeading(node.id, h),
         });
     });
@@ -2601,7 +2616,7 @@ function menuItemsFor(node) {
     ];
     colors.forEach(([label, c]) => {
         items.push({
-            label: (node.color || null) === (c || null) ? `✓ ${label}` : label,
+            label: (node.color || null) === (c || null) ? `âœ“ ${label}` : label,
             swatch: c,
             action: () => setColor(node.id, c || null),
         });
@@ -2616,8 +2631,8 @@ function menuItemsFor(node) {
     items.push({ label: 'Add child', action: () => addChildItem() });
     items.push({ label: 'Add sibling below', action: () => addSiblingBelow() });
     items.push({ label: 'Add sibling above', action: () => addSiblingAbove() });
-    items.push({ label: 'Move up', shortcut: 'Ctrl+↑', action: () => move('up') });
-    items.push({ label: 'Move down', shortcut: 'Ctrl+↓', action: () => move('down') });
+    items.push({ label: 'Move up', shortcut: 'Ctrl+â†‘', action: () => move('up') });
+    items.push({ label: 'Move down', shortcut: 'Ctrl+â†“', action: () => move('down') });
     if (hasChildren) {
         const descendants = flat.filter((f) => f.parents.includes(node.id)).map((f) => f.node);
         const anyUnchecked = descendants.some((n) => !n.checked);
@@ -2628,15 +2643,15 @@ function menuItemsFor(node) {
         items.push({ label: 'Deduplicate children', action: () => deduplicateChildren(node.id) });
     }
     items.push('sep');
-    items.push({ label: 'Revision history…', action: () => openRevisions(node.id) });
+    items.push({ label: 'Revision historyâ€¦', action: () => openRevisions(node.id) });
 
     const currentBullet = node.bullet || 'bullet';
     items.push({
         label: 'Bullet type',
         children: [
-            { label: currentBullet === 'bullet' ? '✓ Bullet' : 'Bullet', action: () => setBullet(node.id, 'bullet') },
-            { label: currentBullet === 'numbered' ? '✓ Numbered' : 'Numbered', shortcut: 'Ctrl+Shift+X', action: () => setBullet(node.id, 'numbered') },
-            { label: currentBullet === 'checklist' ? '✓ Checklist' : 'Checklist', shortcut: 'Ctrl+Shift+C', action: () => setBullet(node.id, 'checklist') },
+            { label: currentBullet === 'bullet' ? 'âœ“ Bullet' : 'Bullet', action: () => setBullet(node.id, 'bullet') },
+            { label: currentBullet === 'numbered' ? 'âœ“ Numbered' : 'Numbered', shortcut: 'Ctrl+Shift+X', action: () => setBullet(node.id, 'numbered') },
+            { label: currentBullet === 'checklist' ? 'âœ“ Checklist' : 'Checklist', shortcut: 'Ctrl+Shift+C', action: () => setBullet(node.id, 'checklist') },
         ],
     });
     return items;
@@ -2811,7 +2826,7 @@ async function openRevisions(id) {
     if (!rec) return;
     Swal.fire({
         title: 'Revision history',
-        html: '<div class="text-left"><p id="rv-body" class="text-[13px] text-[#8a857e]">Memuat…</p></div>',
+        html: '<div class="text-left"><p id="rv-body" class="text-[13px] text-[#8a857e]">Memuatâ€¦</p></div>',
         showConfirmButton: false,
         showCloseButton: true,
         width: '480px',
@@ -2838,7 +2853,7 @@ async function openRevisions(id) {
                     time.textContent = timeAgo(r.created_at);
                     const badge = document.createElement('span');
                     badge.className = 'rounded px-1.5 py-px text-[10px] font-medium text-[#c07a12] bg-[#c07a12]/10';
-                    badge.textContent = bulletLabel(r.bullet) + (r.checked ? ' · selesai' : '') + (r.heading ? ` · H${r.heading}` : '');
+                    badge.textContent = bulletLabel(r.bullet) + (r.checked ? ' Â· selesai' : '') + (r.heading ? ` Â· H${r.heading}` : '');
                     head.append(time, badge);
                     const text = document.createElement('p');
                     text.className = 'text-[13px] text-[#5a5650] leading-snug break-words';
@@ -2873,42 +2888,27 @@ async function setHeading(id, heading) {
     const rec = rows.get(id);
     if (!rec) return;
     recordUndo();
-    const prev = rec.node.heading;
     rec.node.heading = heading;
     render();
-    api.patch(`/documents/${docId}/items/${id}`, { heading }).catch((e) => {
-        rec.node.heading = prev;
-        render();
-        showFailedAlert(e.message);
-    });
+    queuePatch(docId, id, { heading });
 }
 
 async function setColor(id, color) {
     const rec = rows.get(id);
     if (!rec) return;
     recordUndo();
-    const prev = rec.node.color;
     rec.node.color = color;
     render();
-    api.patch(`/documents/${docId}/items/${id}`, { color }).catch((e) => {
-        rec.node.color = prev;
-        render();
-        showFailedAlert(e.message);
-    });
+    queuePatch(docId, id, { color });
 }
 
 async function setBullet(id, bullet) {
     const rec = rows.get(id);
     if (!rec) return;
     recordUndo();
-    const prev = rec.node.bullet;
     rec.node.bullet = bullet;
     render();
-    api.patch(`/documents/${docId}/items/${id}`, { bullet }).catch((e) => {
-        rec.node.bullet = prev;
-        render();
-        showFailedAlert(e.message);
-    });
+    queuePatch(docId, id, { bullet });
 }
 
 function toggleBulletType(id, type) {
@@ -2926,7 +2926,7 @@ async function setBulletChildren(id, bullet) {
     recordUndo();
     targets.forEach((c) => { c.bullet = bullet; });
     render();
-    Promise.all(targets.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet }).catch(() => {}))).then(() => {}).catch(() => loadItems());
+    queuePatches(docId, targets.map((c) => [c.id, { bullet }]));
 }
 
 function renderMenuItems(items) {
@@ -2937,7 +2937,7 @@ function renderMenuItems(items) {
             const back = document.createElement('button');
             back.type = 'button';
             back.className = 'ctx-item shrink-0 w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-[13px] text-[#8a857e]';
-            back.innerHTML = '<span class="text-[#b5b0a9]">←</span><span>Kembali</span>';
+            back.innerHTML = '<span class="text-[#b5b0a9]">â†</span><span>Kembali</span>';
             back.addEventListener('click', () => render(stack[stack.length - 1], stack.slice(0, -1)));
             menuEl.append(back);
             const s = document.createElement('div');
@@ -2984,7 +2984,7 @@ function renderMenuItems(items) {
                 b.classList.add('flex', 'items-center', 'justify-between', 'gap-3');
                 const arrow = document.createElement('span');
                 arrow.className = 'text-[#b5b0a9]';
-                arrow.textContent = '›';
+                arrow.textContent = 'â€º';
                 b.append(arrow);
                 b.addEventListener('click', () => render(item.children, stack.concat(list)));
             } else {
@@ -3104,7 +3104,7 @@ function updateZoomBar() {
         const sep = document.createElement('span');
         sep.dataset.crumb = '1';
         sep.className = 'text-[#b5b0a9]';
-        sep.textContent = '›';
+        sep.textContent = 'â€º';
         const crumb = document.createElement('button');
         crumb.type = 'button';
         crumb.dataset.crumb = '1';
@@ -3165,7 +3165,15 @@ function startEdit(id, evt) {
     sel.addRange(range);
 }
 
-async function commitEdit(id) {
+/**
+ * Commit the edited row into local state and queue the write.
+ *
+ * Deliberately synchronous: the network write is handed to the queue, which coalesces it
+ * and sequences it against any delete. Previously this awaited its own PATCH, so an
+ * in-flight update could land after a delete and raise "Item not found" at the user.
+ * Every caller only ever needed the local effect, so nothing has to await this anymore.
+ */
+function commitEdit(id) {
     const rec = rows.get(id);
     if (!rec) return false;
     editing = false;
@@ -3174,17 +3182,11 @@ async function commitEdit(id) {
     if (value === (rec.node.content || '')) {
         return false;
     }
-    const previous = rec.node.content || '';
     recordUndo();
     rec.node.content = value;
     rec.text.innerHTML = contentHtml(value);
     wireInlineImages(rec.text, id);
-    await api.patch(`/documents/${docId}/items/${id}`, { content: value }).catch((e) => {
-        rec.node.content = previous;
-        rec.text.innerHTML = contentHtml(previous);
-        wireInlineImages(rec.text, id);
-        showFailedAlert(e.message);
-    });
+    queuePatch(docId, id, { content: value });
     return true;
 }
 
@@ -3267,7 +3269,8 @@ function handleEditKey(e, id) {
         e.preventDefault();
         e.stopPropagation();
         const info = getCrossItemSelectionInfo();
-        commitEdit(id).then(async () => {
+        commitEdit(id);
+        (async () => {
             const result = await deleteCrossItemSelection(info);
             if (result) {
                 const rec = rows.get(result.firstId);
@@ -3282,17 +3285,10 @@ function handleEditKey(e, id) {
                     unrenderMath(rec.text);
                     rec.text.focus();
                     setCaretAtOffset(rec.text, result.caretOffset + 1);
-                    (async () => {
-                        try {
-                            await api.patch(`/documents/${docId}/items/${result.firstId}`, { content: rec.node.content });
-                        } catch (err) {
-                            showFailedAlert(err.message);
-                            loadItems();
-                        }
-                    })();
+                    queuePatch(docId, result.firstId, { content: rec.node.content });
                 }
             }
-        });
+        })();
         return;
     }
     if (e.ctrlKey) {
@@ -3305,22 +3301,22 @@ function handleEditKey(e, id) {
             e.preventDefault();
             e.stopPropagation();
             // Ctrl+Enter = tandai selesai (mark as done, persis Dynalist)
-            commitEdit(id).then(() => markAsDone(id));
+            commitEdit(id); markAsDone(id);
         } else if (key === 'c' && !e.shiftKey) {
             if (hasTextSelectionInside(id) || hasCrossItemSelection()) return;
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => copyItems());
+            commitEdit(id); copyItems();
         } else if (key === 'x' && !e.shiftKey) {
             if (hasTextSelectionInside(id) || hasCrossItemSelection()) return;
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => cutItems());
+            commitEdit(id); cutItems();
         } else if (key === 'v' && e.shiftKey) {
             if (!itemClipboard) return;
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => pasteAsSibling(id));
+            commitEdit(id); pasteAsSibling(id);
         } else if (key === 'v' && !e.shiftKey) {
             if (!itemClipboard) return;
             const recText = rows.get(id)?.text;
@@ -3328,11 +3324,11 @@ function handleEditKey(e, id) {
             if (value !== '' && !isWholeItemSelected(id)) return;
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => pasteAsChild(id));
+            commitEdit(id); pasteAsChild(id);
         } else if (key === 'd' && e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => duplicateItem(id));
+            commitEdit(id); duplicateItem(id);
         } else if (e.shiftKey && key === 'e') {
             e.preventDefault();
             e.stopPropagation();
@@ -3356,58 +3352,57 @@ function handleEditKey(e, id) {
         } else if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => {
-                if (multi.size > 1) bulkDelete();
-                else deleteItem(id);
-            });
+            commitEdit(id);
+            if (multi.size > 1) bulkDelete();
+            else deleteItem(id);
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => move('up'));
+            commitEdit(id); move('up');
         } else if (e.key === 'ArrowDown') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => move('down'));
+            commitEdit(id); move('down');
         } else if (e.shiftKey && key === 'c') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => toggleBulletType(id, 'checklist'));
+            commitEdit(id); toggleBulletType(id, 'checklist');
         } else if (e.shiftKey && key === 'x') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => toggleBulletType(id, 'numbered'));
+            commitEdit(id); toggleBulletType(id, 'numbered');
         } else if (key === 'z' && !e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => undo());
+            commitEdit(id); undo();
         } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => redo());
+            commitEdit(id); redo();
         } else if (e.shiftKey && key === 'h') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => toggleHeading(id));
+            commitEdit(id); toggleHeading(id);
         } else if (e.shiftKey && key === 'l') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => cycleDocColor());
+            commitEdit(id); cycleDocColor();
         } else if (e.shiftKey && key === 'm') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => openMovePicker(id));
+            commitEdit(id); openMovePicker(id);
         } else if (e.code === 'Period') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => (e.shiftKey ? toggleCollapseAll() : toggleCollapse(id)));
+            commitEdit(id); if (e.shiftKey) toggleCollapseAll(); else toggleCollapse(id);
         } else if (e.code === 'BracketRight') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => zoomInto(id));
+            commitEdit(id); zoomInto(id);
         } else if (e.code === 'BracketLeft') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => zoomOutLevel());
+            commitEdit(id); zoomOutLevel();
         } else if (e.code === 'Backquote') {
             e.preventDefault();
             e.stopPropagation();
@@ -3419,12 +3414,13 @@ function handleEditKey(e, id) {
     if (e.key === 'Enter' && e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
-        commitEdit(id).then(() => {
+        commitEdit(id);
+        {
             const rec = rows.get(id);
             const ne = rec?.row.querySelector('.item-note-editor');
             if (ne) ne.blur();
             else openNoteEditor(id);
-        });
+        }
     } else if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -3442,10 +3438,11 @@ function handleEditKey(e, id) {
             e.preventDefault();
             e.stopPropagation();
             const info = getCrossItemSelectionInfo();
-            commitEdit(id).then(async () => {
+            commitEdit(id);
+            (async () => {
                 const result = await deleteCrossItemSelection(info);
                 if (result) selectItem(result.firstId);
-            });
+            })();
             return;
         }
         const recText = rows.get(id)?.text;
@@ -3453,17 +3450,16 @@ function handleEditKey(e, id) {
         if (img) {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => deleteImage(id, img.getAttribute('src')));
+            commitEdit(id); deleteImage(id, img.getAttribute('src'));
             return;
         }
         const value = (recText?.innerText || recText?.textContent || '').trim();
         if (multi.size > 1 || value === '') {
             e.preventDefault();
             e.stopPropagation();
-            commitEdit(id).then(() => {
-                if (multi.size > 1) bulkDelete();
-                else deleteItem(id);
-            });
+            commitEdit(id);
+            if (multi.size > 1) bulkDelete();
+            else deleteItem(id);
             return;
         }
         if (e.key === 'Backspace' && isCaretAtStart(recText)) {
@@ -3471,25 +3467,25 @@ function handleEditKey(e, id) {
             if (prev) {
                 e.preventDefault();
                 e.stopPropagation();
-                commitEdit(id).then(() => mergeItems(prev, id, (rows.get(prev)?.node.content || '').length));
+                commitEdit(id); mergeItems(prev, id, (rows.get(prev)?.node.content || '').length);
             } else if (rows.get(id)?.node.parent_id) {
                 e.preventDefault();
                 e.stopPropagation();
-                commitEdit(id).then(() => unindent(id));
+                commitEdit(id); unindent(id);
             }
         } else if (e.key === 'Delete' && isCaretAtEnd(recText)) {
             const next = nextSiblingOf(id);
             if (next) {
                 e.preventDefault();
                 e.stopPropagation();
-                commitEdit(id).then(() => mergeItems(id, next));
+                commitEdit(id); mergeItems(id, next);
             }
         }
     }
 }
 
 async function editIndent(id, dir) {
-    await commitEdit(id);
+    commitEdit(id);
     if (dir === 'in') await indent(id);
     else await unindent(id);
     if (rows.has(selectedId)) startEdit(selectedId);
@@ -3609,20 +3605,13 @@ async function mergeItems(keepId, dropId, junction) {
     removeNodeLocally(dropId);
     buildFlat(); applyZoomFilter(); render(); selectItem(keepId); startEdit(keepId);
     if (junction != null) setCaretAtOffset(rows.get(keepId)?.text, junction);
-    (async () => {
-        try {
-            await api.patch(`/documents/${docId}/items/${keepId}`, { content: merged });
-            if (children.length) {
-                await Promise.all(children.map((c, i) =>
-                    api.post(`/documents/${docId}/items/${c.id}/move`, { parent_id: keepId, position: keepStart + i })
-                ));
-            }
-            await api.delete(`/documents/${docId}/items/${dropId}`);
-        } catch (e) {
-            showFailedAlert(e.message);
-            loadItems();
-        }
-    })();
+    // One patch, one move batch and one delete. The queue orders them patch -> move ->
+    // delete so the merge can never race itself.
+    queuePatch(docId, keepId, { content: merged });
+    if (children.length) {
+        queueMoves(docId, children.map((c, i) => ({ id: c.id, parent_id: keepId, position: keepStart + i })));
+    }
+    queueDelete(docId, dropId);
 }
 
 function getCrossItemSelectionInfo() {
@@ -3689,19 +3678,13 @@ async function deleteCrossItemSelection(preInfo) {
         freshRec.text.focus();
         setCaretAtOffset(freshRec.text, caretOffset);
     }
-    (async () => {
-        try {
-            await api.patch(`/documents/${docId}/items/${first.id}`, { content: merged });
-            if (uniqueRemove.length) {
-                await Promise.allSettled(uniqueRemove.map((id) =>
-                    api.delete(`/documents/${docId}/items/${id}`)
-                ));
-            }
-        } catch (e) {
-            showFailedAlert(e.message);
-            loadItems();
-        }
-    })();
+    // The merged content and the removals go through the queue, which sends the patch
+    // before the deletes in the same flush. Previously this fanned out one DELETE per
+    // item, which is what exhausted the connection pool on large selections.
+    queuePatch(docId, first.id, { content: merged });
+    if (uniqueRemove.length) {
+        queueDelete(docId, uniqueRemove);
+    }
     return { firstId: first.id, caretOffset };
 }
 
@@ -3731,7 +3714,7 @@ function setCaretAtOffset(textEl, targetLen) {
     walk(textEl);
 }
 
-// ── Live (real-time) markdown preview saat mengetik (persis semangat Dynalist) ──
+// â”€â”€ Live (real-time) markdown preview saat mengetik (persis semangat Dynalist) â”€â”€
 // Aman & terbatas: hanya bekerja saat kursor berada di AKHIR item sehingga tidak
 // menyebabkan caret melompat saat mengetik di tengah teks. Autocomplete & KaTeX dihindari.
 
@@ -3777,14 +3760,10 @@ async function toggleCheck(id) {
     const next = !rec.node.checked;
     rec.node.checked = next;
     render();
-    api.patch(`/documents/${docId}/items/${id}`, { checked: next }).catch((e) => {
-        rec.node.checked = !next;
-        render();
-        showFailedAlert(e.message);
-    });
+    queuePatch(docId, id, { checked: next });
 }
 
-// Persis Dynalist: Ctrl+Enter = "mark as done" → hanya menandai SELESAI item
+// Persis Dynalist: Ctrl+Enter = "mark as done" â†’ hanya menandai SELESAI item
 // checklist yang belum dicentang, tanpa berisiko membatalkan centang.
 async function markAsDone(id) {
     const rec = rows.get(id);
@@ -3794,11 +3773,7 @@ async function markAsDone(id) {
     recordUndo();
     node.checked = true;
     render();
-    api.patch(`/documents/${docId}/items/${id}`, { checked: true }).catch((e) => {
-        node.checked = false;
-        render();
-        showFailedAlert(e.message);
-    });
+    queuePatch(docId, id, { checked: true });
 }
 
 async function indent(id) {
@@ -3816,10 +3791,7 @@ async function indent(id) {
     node.parent_id = prevSibling.id;
     prevSibling.children.push(node);
     buildFlat(); applyZoomFilter(); render(); selectItem(id);
-    api.post(`/documents/${docId}/items/${id}/indent`).catch((e) => {
-        showFailedAlert(e.message);
-        loadItems();
-    });
+    queueStructure(docId, 'indent', [id]);
 }
 
 async function unindent(id) {
@@ -3837,10 +3809,7 @@ async function unindent(id) {
     node.parent_id = grandparentId;
     insertNodeLocally(grandparentId, insertPos, node);
     buildFlat(); applyZoomFilter(); render(); selectItem(id);
-    api.post(`/documents/${docId}/items/${id}/unindent`).catch((e) => {
-        showFailedAlert(e.message);
-        loadItems();
-    });
+    queueStructure(docId, 'unindent', [id]);
 }
 
 // Apakah id memiliki ancestor (termasuk di pohon) yang termasuk dalam set seleksi?
@@ -3878,9 +3847,7 @@ async function indentMany(ids) {
     });
     if (!moved.length) return toast('Tidak bisa indent seleksi ini', 'error');
     buildFlat(); applyZoomFilter(); render();
-    moved.forEach((mid) => {
-        api.post(`/documents/${docId}/items/${mid}/indent`).catch(() => {});
-    });
+    queueStructure(docId, 'indent', moved);
     selectItem(targets[0].id);
 }
 
@@ -3908,9 +3875,7 @@ async function unindentMany(ids) {
     });
     if (!moved.length) return toast('Tidak bisa unindent seleksi ini', 'error');
     buildFlat(); applyZoomFilter(); render();
-    moved.forEach((mid) => {
-        api.post(`/documents/${docId}/items/${mid}/unindent`).catch(() => {});
-    });
+    queueStructure(docId, 'unindent', moved);
     selectItem(targets[0].id);
 }
 
@@ -3928,10 +3893,10 @@ async function deleteItem(id) {
     render();
     const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
     if (target) selectItem(target.node.id);
-    api.delete(`/documents/${docId}/items/${id}`).catch((e) => {
-        showFailedAlert('Gagal menghapus: ' + e.message);
-        loadItems();
-    });
+    // Instant, like Dynalist: the row is already gone from the screen, so there is nothing
+    // to wait for and nothing to reload. A failure surfaces via the queue's save-failed
+    // event instead of pulling the whole document down here.
+    queueDelete(docId, id);
 }
 
 async function deleteChecked() {
@@ -3950,10 +3915,10 @@ async function deleteChecked() {
     applyZoomFilter();
     render();
     toast(`${checkedIds.length} item dihapus. Pulihkan dari Trash.`);
-    api.post(`/documents/${docId}/items-delete-checked`).catch((e) => {
-        showFailedAlert('Gagal menghapus: ' + e.message);
-        loadItems();
-    });
+    // Send the ids the user actually saw disappear. The server used to re-derive this
+    // list from its own `checked` column, so a still-pending checked patch made it delete
+    // a different set of rows than the screen.
+    queueDelete(docId, checkedIds);
 }
 
 async function numberChildren() {
@@ -3965,7 +3930,7 @@ async function numberChildren() {
     children.forEach((c) => { c.bullet = 'numbered'; });
     render();
     showSuccess('Anak dinomori');
-    Promise.all(children.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet: 'numbered' }).catch(() => {}))).catch(() => loadItems());
+    queuePatches(docId, children.map((c) => [c.id, { bullet: 'numbered' }]));
 }
 
 async function deduplicateChildren(id) {
@@ -3990,7 +3955,7 @@ async function stopNumberingChildren() {
     children.forEach((c) => { c.bullet = 'bullet'; });
     render();
     showSuccess('Penomoran anak dihapus');
-    Promise.all(children.map((c) => api.patch(`/documents/${docId}/items/${c.id}`, { bullet: 'bullet' }).catch(() => {}))).catch(() => loadItems());
+    queuePatches(docId, children.map((c) => [c.id, { bullet: 'bullet' }]));
 }
 
 async function move(dir) {
@@ -4010,10 +3975,7 @@ async function move(dir) {
         group.forEach((n) => parentNodes.push(n));
     }
     buildFlat(); applyZoomFilter(); render(); selectItem(node.id);
-    api.post(`/documents/${docId}/items/${node.id}/move`, { parent_id: parentId, position: j }).catch((e) => {
-        showFailedAlert(e.message);
-        loadItems();
-    });
+    queueMoves(docId, [{ id: node.id, parent_id: parentId, position: j }]);
 }
 
 function findNodeInTree(id, nodes = tree) {
@@ -4418,6 +4380,12 @@ function recordUndo() {
 }
 
 async function restoreSnapshot(snap) {
+    // The snapshot is authoritative: it lists every row that should exist, and the server
+    // soft-deletes anything missing from it. So any queued write must be discarded, not
+    // flushed -- otherwise a debounced edit (or a queued delete) would land after the
+    // restore and silently undo the user's own undo.
+    await flushNow(docId).catch(() => {});
+    resetQueue(docId);
     applySnapshotLocal(snap);
     api.post(`/documents/${docId}/items-restore`, { items: snap }).catch(async (e) => {
         await loadItems();
@@ -4798,7 +4766,7 @@ function renderTrash() {
 
         const bullet = document.createElement('span');
         bullet.className = 'shrink-0 mt-[3px] w-[13px] text-center text-[#8a857e] text-[12px]';
-        bullet.textContent = it.checked ? '☑' : (it.bullet === 'checklist' ? '☐' : '•');
+        bullet.textContent = it.checked ? 'â˜‘' : (it.bullet === 'checklist' ? 'â˜' : 'â€¢');
         row.append(bullet);
 
         const main = document.createElement('div');
@@ -4858,6 +4826,8 @@ function renderTrash() {
 async function restoreFromTrash(id) {
     closeTrash();
     showSuccess('Memulihkan item...', 'Dipulihkan');
+    // A queued delete for this id would land right after the restore and remove it again.
+    dropPending(docId, [id]);
     try {
         await api.post(`/documents/${docId}/items/${id}/restore`);
         await Promise.all([loadTrash(), loadItems()]);
@@ -5402,7 +5372,7 @@ function renderReminderPop() {
             row.className = 'view-opt w-full flex items-center gap-2 px-3 py-1.5 text-left';
             row.innerHTML = `<span class="w-5 h-5 shrink-0 flex items-center justify-center text-[#c07a12]">${SVG.clock}</span>
                 <span class="flex-1 min-w-0"><span class="block truncate">${escapeHtml(r.node.content || '(tanpa judul)')}</span>
-                <span class="block text-[11px] ${r.next < new Date() ? 'text-red-600' : 'text-[#8a857e]'}">${r.next.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}${r.next < new Date() ? ' — terlambat' : ''}</span></span>`;
+                <span class="block text-[11px] ${r.next < new Date() ? 'text-red-600' : 'text-[#8a857e]'}">${r.next.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}${r.next < new Date() ? ' â€” terlambat' : ''}</span></span>`;
             row.addEventListener('click', () => {
                 if (r.node.document_id === docId) {
                     zoomToItem(r.node.id);
@@ -5614,7 +5584,7 @@ function wireOutline() {
                     const rec = rows.get(realId);
                     if (rec) { rec.node = node; if (rec.text) { rec.text.innerHTML = contentHtml(node.content); wireInlineImages(rec.text, realId); } }
                 }
-                api.patch(`/documents/${docId}/items/${realId || tempId}`, { content: node.content }).catch(() => {});
+                queuePatch(docId, realId || tempId, { content: node.content });
             }
             return;
         }
@@ -5651,14 +5621,14 @@ function wireOutline() {
         if (firstTop) selectItem(firstTop.id);
 
         try {
-            await Promise.all(tempNodes.map((n, i) => persistPastedNode(n, parentId, pos + i)));
+            await persistPastedTree(tempNodes, parentId, pos);
         } catch (err) {
             showFailedAlert('Sebagian item gagal disimpan: ' + err.message);
             loadItems();
         }
     });
 
-    // ── drop file eksternal (gambar / teks) ke outline ───────────────────
+    // â”€â”€ drop file eksternal (gambar / teks) ke outline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     els.outline.addEventListener('dragover', (e) => {
         if ([...(e.dataTransfer?.types || [])].includes('Files')) {
             e.preventDefault();
@@ -5680,7 +5650,7 @@ function wireOutline() {
         await insertDroppedFiles(e.dataTransfer, parentId);
     }, true);
 
-    // ── drag-select antar baris (mirip Dynalist: drag di luar bullet/teks) ──
+    // â”€â”€ drag-select antar baris (mirip Dynalist: drag di luar bullet/teks) â”€â”€
     document.addEventListener('mousemove', (e) => {
         if (blockSelectStartId == null || !(e.buttons & 1)) return;
         const rowEl = document.elementFromPoint(e.clientX, e.clientY)?.closest('.item-row');
@@ -5964,8 +5934,14 @@ export function init() {
     applySpacing();
     applyPrefsVisual();
     wireSettings();
-    window.addEventListener('dyn:save-start', () => setSaveStatus('Menyimpan…', false));
+    window.addEventListener('dyn:save-start', () => setSaveStatus('Menyimpanâ€¦', false));
     window.addEventListener('dyn:save-end', () => setSaveStatus('Tersimpan', true));
+    // A failed flush keeps the work queued for the next attempt, so tell the user without
+    // reloading the document (a reload would throw away the local state they are editing).
+    window.addEventListener('dyn:save-failed', (e) => {
+        setSaveStatus('Gagal menyimpan', false);
+        showFailedAlert('Perubahan belum tersimpan: ' + (e.detail?.message || 'kesalahan jaringan'));
+    });
     els.zoomBar = createZoomBar();
     els.container.insertBefore(els.zoomBar, els.outline);
     updateZoomBar();
