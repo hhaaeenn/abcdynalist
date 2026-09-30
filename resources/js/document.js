@@ -69,6 +69,10 @@ let blockSelectActive = false;
 let suppressNextRowClick = false;
 
 let lastVisibleIds = new Set();
+// Ordered counterpart of lastVisibleIds -- caret movement needs "what's the next rendered
+// row" (an order), not just "is this id visible" (a Set). Populated by render() alongside
+// lastVisibleIds.
+let renderedOrder = [];
 let flatSearch = false;
 let trashItems = [];
 const multi = new Set();
@@ -79,6 +83,12 @@ let linkPickerRange = null;
 let itemClipboard = null;
 const undoStack = [];
 const redoStack = [];
+// A keyboard-driven delete chain (holding Backspace) coalesces into one undo step for the
+// first 1.5s after the chain starts, instead of one step per keystroke. The window is fixed
+// from the first delete, not reset by each subsequent one -- a hold longer than 1.5s starts
+// a second undo step rather than growing the first indefinitely.
+let undoBatchActive = false;
+let undoBatchTimer = null;
 
 const els = {};
 const rows = new Map();
@@ -262,6 +272,16 @@ function buildFlat() {
         }
     };
     walk(tree, 0, []);
+}
+
+/**
+ * The ordered list of rows actually on screen right now (post collapse/completed/tag
+ * filtering), in display order. Caret movement (plain arrows, Home/End, delete
+ * re-selection) must walk this instead of `flat`, or it lands on a hidden row and strands
+ * the keyboard -- `flat` is the full model including anything currently invisible.
+ */
+function renderedFlat() {
+    return renderedOrder;
 }
 
 export async function openDocument(id) {
@@ -559,6 +579,7 @@ function render() {
         visible = visible.filter((f) => matched.has(f.node.id) || f.parents.some((p) => matched.has(p)));
     }
     lastVisibleIds = new Set(visible.map((f) => f.node.id));
+    renderedOrder = visible;
     if (!visible.length) {
         const empty = document.createElement('p');
         empty.className = 'doc-empty py-6 text-center text-sm text-[#b5b0a9] select-none cursor-text';
@@ -573,6 +594,7 @@ function render() {
             }
         });
         els.outline.append(empty);
+        empty.focus();
         return;
     }
     for (const { node, depth } of visible) {
@@ -827,7 +849,7 @@ function buildRow(node, depth) {
     del.type = 'button';
     del.className = 'item-del opacity-0 group-hover:opacity-100 shrink-0 mt-[3px] w-5 h-5 flex items-center justify-center rounded text-[#8a857e] hover:text-red-600 transition-opacity';
     del.innerHTML = SVG.trash;
-    del.title = 'Hapus item (Backspace)';
+    del.title = 'Hapus item (Ctrl+Shift+Backspace)';
     del.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteItem(node.id);
@@ -922,14 +944,9 @@ function buildRow(node, depth) {
         }
         if (multi.size) clearMulti();
         selectItem(node.id);
-        // A click selects, the way Dynalist does it: Backspace on a selected row deletes it,
-        // and the first typed character opens the editor. Touch keeps opening the editor
-        // directly, because a tap is the only way in on a phone.
-        if (e.pointerType === 'touch' || e.detail === 0) startEdit(node.id, e);
-        else {
-            const s = window.getSelection();
-            if (s && !s.isCollapsed) s.removeAllRanges();
-        }
+        // A click drops straight into edit with a real caret, the way Dynalist's single
+        // continuous surface works -- there is no separate "selected but not editing" stop.
+        startEdit(node.id, e);
     });
 
     row.addEventListener('contextmenu', (e) => {
@@ -1082,13 +1099,6 @@ function buildRow(node, depth) {
         updateAutocomplete(text, node.id);
     });
 
-    text.addEventListener('dblclick', (e) => {
-        // Editing mid-text needs a caret, and a plain click now only selects.
-        e.preventDefault();
-        e.stopPropagation();
-        startEdit(node.id, e);
-    });
-
     text.addEventListener('click', (e) => {
         const link = e.target.closest('.internal-link');
         if (link) {
@@ -1198,6 +1208,10 @@ function nodeHasContent(node) {
 function isCaretAtEnd(textEl) {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return true;
+    // A non-collapsed selection is "select some text then hit Delete", not "caret at the
+    // boundary" -- it must fall through to the browser's default delete-the-selection, not
+    // trigger a cross-item merge.
+    if (!sel.isCollapsed) return false;
     const range = sel.getRangeAt(0);
     if (!textEl.contains(range.commonAncestorContainer)) return true;
     let node = range.endContainer;
@@ -1223,6 +1237,8 @@ function isCaretAtEnd(textEl) {
 function isCaretAtStart(textEl) {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return false;
+    // Same reasoning as isCaretAtEnd: a non-collapsed selection is never "at the boundary".
+    if (!sel.isCollapsed) return false;
     const range = sel.getRangeAt(0);
     if (!textEl.contains(range.commonAncestorContainer)) return false;
     const r = document.createRange();
@@ -1239,14 +1255,6 @@ function isTypingTarget(t) {
     if (!t || !t.tagName) return false;
     const tag = t.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
-}
-
-// A plain printable keystroke, which is what opens the editor on a selected row. Space is
-// excluded because it already means "toggle the checklist bullet" on a selected row.
-function isPrintableKey(e) {
-    if (e.ctrlKey || e.metaKey || e.altKey) return false;
-    if (e.key.length !== 1) return false;
-    return e.key !== ' ' && e.key !== 'Spacebar';
 }
 
 function isTailOnlyMarkers(text) {
@@ -1431,38 +1439,32 @@ async function bulkComplete(checked) {
     queuePatches(docId, targets.map((f) => [f.node.id, { checked }]));
 }
 
-async function bulkDelete() {
+async function bulkDelete({ fromKeyboard = false } = {}) {
     const ids = [...multi].map(resolveItemId);
     if (!ids.length) return;
-    recordUndo();
-    const allIds = new Set(ids);
+    recordUndo({ coalesceKeyboard: fromKeyboard });
+    const allIds = new Set();
     for (const id of ids) {
-        const node = findNodeInTree(id);
-        if (node && node.children) {
-            const collectChildren = (children) => {
-                for (const child of children) {
-                    if (!allIds.has(child.id)) {
-                        allIds.add(child.id);
-                        if (child.children) collectChildren(child.children);
-                    }
-                }
-            };
-            collectChildren(node.children);
-        }
+        for (const sid of collectSubtreeIds(id)) allIds.add(sid);
     }
-    const idx = flat.findIndex(f => ids.includes(f.node.id));
+    const fullRender = needsFullRender(allIds);
+    const idx = renderedFlat().findIndex(f => ids.includes(f.node.id));
     ids.forEach((id) => {
         removeNodeLocally(id);
-        collapsed.delete(id);
-        multi.delete(id);
     });
+    for (const sid of allIds) { collapsed.delete(sid); multi.delete(sid); }
     selAnchor = null;
     selEdge = null;
     if (selectedId && allIds.has(selectedId)) selectedId = null;
     buildFlat();
-    applyZoomFilter();
-    render();
-    const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
+    if (fullRender) {
+        applyZoomFilter();
+        render();
+    } else {
+        removeRowsSurgically(allIds);
+    }
+    const list = renderedFlat();
+    const target = list[Math.max(0, Math.min(idx, list.length - 1))];
     if (target) selectItem(target.node.id);
     queueDelete(docId, [...allIds]);
     toast(`${allIds.size} item dihapus. Pulihkan dari Trash.`);
@@ -2502,7 +2504,7 @@ function menuItemsFor(node) {
     items.push({ label: 'Edit', shortcut: 'Ctrl+E', action: () => startEdit(node.id) });
     items.push({ label: 'Zoom in', shortcut: 'Ctrl+]', action: () => zoomInto(node.id) });
     items.push({ label: node.note ? 'Edit note' : 'Add note', shortcut: 'Shift+Enter', action: () => openNoteEditor(node.id) });
-    items.push({ label: 'Delete', shortcut: 'Backspace', danger: true, action: () => deleteItem(node.id) });
+    items.push({ label: 'Delete', shortcut: 'Ctrl+Shift+Backspace', danger: true, action: () => deleteItem(node.id) });
     items.push('sep');
 
     items.push({ label: 'Delete checked items', action: () => deleteChecked() });
@@ -3198,13 +3200,14 @@ function updateZoomBar() {
 }
 
 function selectItem(id) {
+    // An id with no rendered row can't be focused, so accepting it would strand the
+    // keyboard on nothing -- reject it instead of setting selectedId to a phantom row.
+    const rec = rows.get(id);
+    if (!rec) return;
     selectedId = id;
     refreshHighlights();
-    const rec = rows.get(id);
-    if (rec) {
-        rec.row.scrollIntoView({ block: 'nearest' });
-        rec.row.focus({ preventScroll: true });
-    }
+    rec.row.scrollIntoView({ block: 'nearest' });
+    rec.row.focus({ preventScroll: true });
     document.dispatchEvent(new CustomEvent('dyn:item-selected', { detail: id }));
 }
 
@@ -3227,21 +3230,22 @@ function startEdit(id, evt) {
     // exit points (commitEdit, cancelEdit) turn it back off.
     rec.text.contentEditable = 'true';
     rec.text.focus();
+    // Entering edit always starts from a clean slate -- any selection left over from
+    // clicking a different row, a block-select, or a stale text drag must not survive into
+    // the new edit (PRD: "seleksi teks dibersihkan").
+    window.getSelection()?.removeAllRanges();
     if (evt && document.caretRangeFromPoint) {
         const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
         if (r && rec.text.contains(r.startContainer)) {
             const s = window.getSelection();
-            s.removeAllRanges();
             s.addRange(r);
             return;
         }
     }
     const sel = window.getSelection();
-    if (sel && !sel.isCollapsed && (rec.text.contains(sel.anchorNode) || hasCrossItemSelection())) return;
     const range = document.createRange();
     range.selectNodeContents(rec.text);
     range.collapse(false);
-    sel.removeAllRanges();
     sel.addRange(range);
 }
 
@@ -3442,8 +3446,8 @@ function handleEditKey(e, id) {
             e.preventDefault();
             e.stopPropagation();
             commitEdit(id);
-            if (multi.size > 1) bulkDelete();
-            else deleteItem(id);
+            if (multi.size > 1) bulkDelete({ fromKeyboard: true });
+            else deleteItem(id, { fromKeyboard: true });
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             e.stopPropagation();
@@ -3547,8 +3551,8 @@ function handleEditKey(e, id) {
             e.preventDefault();
             e.stopPropagation();
             commitEdit(id);
-            if (multi.size > 1) bulkDelete();
-            else deleteItem(id);
+            if (multi.size > 1) bulkDelete({ fromKeyboard: true });
+            else deleteItem(id, { fromKeyboard: true });
             return;
         }
         if (e.key === 'Backspace' && isCaretAtStart(recText)) {
@@ -3973,20 +3977,37 @@ async function unindentMany(ids) {
     selectItem(targets[0].id);
 }
 
-async function deleteItem(id) {
+async function deleteItem(id, { fromKeyboard = false } = {}) {
     id = resolveItemId(id);
     if (!id) return toast('Pilih item dulu', 'error');
-    recordUndo();
-    const idx = flat.findIndex((f) => f.node.id === id);
+    recordUndo({ coalesceKeyboard: fromKeyboard });
+    // Index into the RENDERED list, not the full model -- the model can include rows that
+    // aren't on screen (collapsed, completed-hidden, filtered), and re-selecting one of
+    // those would strand the keyboard with no visible caret.
+    const idx = renderedFlat().findIndex((f) => f.node.id === id);
+    const subtreeIds = collectSubtreeIds(id);
+    const fullRender = needsFullRender(subtreeIds);
     removeNodeLocally(id);
-    collapsed.delete(id);
-    multi.delete(id);
+    for (const sid of subtreeIds) { collapsed.delete(sid); multi.delete(sid); }
     if (selectedId === id) selectedId = null;
     buildFlat();
-    applyZoomFilter();
-    render();
-    const target = flat[Math.max(0, Math.min(idx, flat.length - 1))];
-    if (target) selectItem(target.node.id);
+    if (fullRender) {
+        applyZoomFilter();
+        render();
+    } else {
+        // The common case: only the deleted subtree's DOM comes out, everything else on
+        // screen is untouched -- no full rebuild, no KaTeX re-render, so a Backspace-hold
+        // chain stays fast even on a large document.
+        removeRowsSurgically(subtreeIds);
+    }
+    const list = renderedFlat();
+    const target = list[Math.max(0, Math.min(idx, list.length - 1))];
+    if (target) {
+        // Land in edit, not just selected: holding Backspace must keep consuming this row's
+        // (now empty, so about to vanish again) text instead of leaking into the next row's.
+        selectItem(target.node.id);
+        startEdit(target.node.id);
+    }
     // Instant, like Dynalist: the row is already gone from the screen, so there is nothing
     // to wait for and nothing to reload. A failure surfaces via the queue's save-failed
     // event instead of pulling the whole document down here.
@@ -4096,6 +4117,49 @@ function applyZoomFilter() {
             flat = sub;
         }
     }
+}
+
+/** id plus every descendant id, from the live tree (call before removeNodeLocally). */
+function collectSubtreeIds(id) {
+    const ids = new Set([id]);
+    const node = findNodeInTree(id);
+    if (node && node.children) {
+        const walk = (children) => {
+            for (const child of children) {
+                if (!ids.has(child.id)) {
+                    ids.add(child.id);
+                    if (child.children) walk(child.children);
+                }
+            }
+        };
+        walk(node.children);
+    }
+    return ids;
+}
+
+/**
+ * Whether a delete of `idsToRemove` needs the old full render() instead of surgical DOM
+ * removal. Three cases render() alone handles correctly: the document goes empty (needs the
+ * .doc-empty placeholder), a tag filter is active (visibility depends on whether *any*
+ * remaining descendant still matches, a structural recompute), or the zoom root itself is
+ * being removed (its subtree needs to disappear/redirect via applyZoomFilter).
+ */
+function needsFullRender(idsToRemove) {
+    if (tagFilter) return true;
+    if (zoomId && idsToRemove.has(zoomId)) return true;
+    return !renderedFlat().some((f) => !idsToRemove.has(f.node.id));
+}
+
+/** Remove exactly these rows' DOM and bookkeeping without rebuilding the rest of the outline. */
+function removeRowsSurgically(idsToRemove) {
+    for (const id of idsToRemove) {
+        rows.get(id)?.row.remove();
+        rows.delete(id);
+        lastVisibleIds.delete(id);
+    }
+    renderedOrder = renderedOrder.filter((f) => !idsToRemove.has(f.node.id));
+    updateWordCount();
+    updateReminderBadge();
 }
 
 function insertNodeLocally(parentId, position, node) {
@@ -4296,11 +4360,18 @@ async function addSiblingAbove() {
 function nav(dir) {
     selAnchor = null;
     selEdge = null;
-    if (!flat.length) return;
-    let i = flat.findIndex((f) => f.node.id === selectedId);
+    const list = renderedFlat();
+    if (!list.length) return;
+    let i = list.findIndex((f) => f.node.id === selectedId);
     if (i === -1) i = dir > 0 ? -1 : 0;
-    i = Math.max(0, Math.min(flat.length - 1, i + dir));
-    selectItem(flat[i].node.id);
+    i = Math.max(0, Math.min(list.length - 1, i + dir));
+    const id = list[i].node.id;
+    selectItem(id);
+    // Plain arrow/paging navigation moves the caret into the row, the way Dynalist's single
+    // continuous surface works -- there is no separate "selected but not editing" stop along
+    // the way. Shift/Ctrl-modified navigation (block-select, move) is untouched; those don't
+    // call nav().
+    startEdit(id);
 }
 
 function navInto() {
@@ -4508,8 +4579,14 @@ function applySnapshotLocal(snap) {
     updateWordCount();
 }
 
-function recordUndo() {
+function recordUndo({ coalesceKeyboard = false } = {}) {
     if (!docId) return;
+    if (coalesceKeyboard) {
+        if (undoBatchActive) return;
+        undoBatchActive = true;
+        clearTimeout(undoBatchTimer);
+        undoBatchTimer = setTimeout(() => { undoBatchActive = false; }, 1500);
+    }
     const snap = captureSnapshot();
     const last = undoStack[undoStack.length - 1];
     if (last && last.length === snap.length) {
@@ -5895,8 +5972,8 @@ function wireOutline() {
                 }
             } else if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
                 e.preventDefault();
-                if (multi.size > 1) bulkDelete();
-                else deleteItem(selectedId);
+                if (multi.size > 1) bulkDelete({ fromKeyboard: true });
+                else deleteItem(selectedId, { fromKeyboard: true });
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 move('up');
@@ -5969,17 +6046,15 @@ function wireOutline() {
             return;
         }
 
-        // A selected (not yet edited) item deletes on plain Backspace/Delete, the way
-        // Dynalist does it. `deleteItem` re-selects the following row, so holding the key
-        // keeps clearing items without another click -- which is why this needs no special
-        // key-repeat handling.
+        // A click or plain-arrow navigation always enters edit (see startEdit call sites
+        // above), so by the time a row is "selected" it is normally also "editing" --
+        // Backspace/Delete on real text is handled entirely by handleEditKey instead. The
+        // one state this handler still sees non-editing is a multi-selection, which has no
+        // caret at all and needs its own whole-item(s) delete.
         if (e.key === 'Backspace' || e.key === 'Delete') {
             if (multi.size > 1) {
                 e.preventDefault();
-                bulkDelete();
-            } else if (selectedId) {
-                e.preventDefault();
-                deleteItem(selectedId);
+                bulkDelete({ fromKeyboard: true });
             }
             return;
         }
@@ -6010,10 +6085,12 @@ function wireOutline() {
             nav(-10);
         } else if (e.key === 'Home') {
             e.preventDefault();
-            if (flat.length) selectItem(flat[0].node.id);
+            const list = renderedFlat();
+            if (list.length) { selectItem(list[0].node.id); startEdit(list[0].node.id); }
         } else if (e.key === 'End') {
             e.preventDefault();
-            if (flat.length) selectItem(flat[flat.length - 1].node.id);
+            const list = renderedFlat();
+            if (list.length) { selectItem(list[list.length - 1].node.id); startEdit(list[list.length - 1].node.id); }
         } else if (e.key === 'Enter') {
             e.preventDefault();
             const node = rows.get(selectedId)?.node;
@@ -6061,13 +6138,6 @@ function wireOutline() {
         } else if (e.key === 'Escape') {
             e.preventDefault();
             if (multi.size) clearMulti();
-        } else if (isPrintableKey(e) && selectedId) {
-            // Type-to-edit: with a click-only selection the editor has to open on the first
-            // character, otherwise typing on a selected row does nothing. The caret sits at
-            // the end of the text because that is where startEdit puts it.
-            e.preventDefault();
-            startEdit(selectedId);
-            document.execCommand('insertText', false, e.key);
         }
     });
 }
