@@ -651,6 +651,12 @@ body[data-theme='dark'] .is-checked-text {
     border-radius: 4px;
 }
 
+/* A selected row is not editable, so the caret cursor would lie: the pointer only turns
+   into a text cursor on the row that is actually being edited. */
+.item-text[contenteditable='true'] {
+    cursor: text;
+}
+
 .item-text:focus {
     background: transparent;
     outline: none;

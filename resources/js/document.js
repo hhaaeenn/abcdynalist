@@ -529,6 +529,10 @@ function htmlToMarkdown(html) {
 }
 
 function render() {
+    // A rebuild throws away the row DOM, which would strand `editing` on an element that no
+    // longer exists -- the app would believe it is editing while the text is inert. Commit
+    // first so the keystrokes are saved and the two states cannot drift apart.
+    if (editing && selectedId && rows.get(selectedId)?.text?.isConnected) commitEdit(selectedId);
     els.outline.innerHTML = '';
     rows.clear();
     updateReminderBadge();
@@ -780,7 +784,7 @@ function buildRow(node, depth) {
     cell.className = 'flex-1 min-w-0';
 
     const text = document.createElement('div');
-    text.className = 'item-text text-[14px] leading-relaxed break-words py-0.5 cursor-text';
+    text.className = 'item-text text-[14px] leading-relaxed break-words py-0.5 cursor-default';
     if (node.checked) text.classList.add('is-checked-text');
     const headingClass = { 1: 'text-[19px] font-bold heading-1', 2: 'text-[16px] font-bold heading-2', 3: 'text-[14px] font-semibold heading-3' }[node.heading] || '';
     if (headingClass) text.classList.add(...headingClass.split(' '));
@@ -796,7 +800,11 @@ function buildRow(node, depth) {
     text.innerHTML = contentHtml(node.content);
     applyTagColors(text);
     wireInlineImages(text, node.id);
-    text.contentEditable = 'true';
+    // Only the row being edited is a live editable region (see startEdit). A merely
+    // selected row must be inert: otherwise the browser drops a caret into it on click,
+    // the app's own `editing` flag stays false, and the next Backspace is handled as
+    // "delete the selected item" instead of "delete a character".
+    text.contentEditable = 'false';
 
     let noteEl = null;
     if (node.note && notesMode !== 'hide') {
@@ -914,7 +922,14 @@ function buildRow(node, depth) {
         }
         if (multi.size) clearMulti();
         selectItem(node.id);
-        startEdit(node.id, e);
+        // A click selects, the way Dynalist does it: Backspace on a selected row deletes it,
+        // and the first typed character opens the editor. Touch keeps opening the editor
+        // directly, because a tap is the only way in on a phone.
+        if (e.pointerType === 'touch' || e.detail === 0) startEdit(node.id, e);
+        else {
+            const s = window.getSelection();
+            if (s && !s.isCollapsed) s.removeAllRanges();
+        }
     });
 
     row.addEventListener('contextmenu', (e) => {
@@ -1067,6 +1082,13 @@ function buildRow(node, depth) {
         updateAutocomplete(text, node.id);
     });
 
+    text.addEventListener('dblclick', (e) => {
+        // Editing mid-text needs a caret, and a plain click now only selects.
+        e.preventDefault();
+        e.stopPropagation();
+        startEdit(node.id, e);
+    });
+
     text.addEventListener('click', (e) => {
         const link = e.target.closest('.internal-link');
         if (link) {
@@ -1217,6 +1239,14 @@ function isTypingTarget(t) {
     if (!t || !t.tagName) return false;
     const tag = t.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
+}
+
+// A plain printable keystroke, which is what opens the editor on a selected row. Space is
+// excluded because it already means "toggle the checklist bullet" on a selected row.
+function isPrintableKey(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.key.length !== 1) return false;
+    return e.key !== ' ' && e.key !== 'Spacebar';
 }
 
 function isTailOnlyMarkers(text) {
@@ -2469,6 +2499,7 @@ function menuItemsFor(node) {
         items.push({ label: 'Expand all siblings', action: () => expandSiblings(node.id) });
     }
 
+    items.push({ label: 'Edit', shortcut: 'Ctrl+E', action: () => startEdit(node.id) });
     items.push({ label: 'Zoom in', shortcut: 'Ctrl+]', action: () => zoomInto(node.id) });
     items.push({ label: node.note ? 'Edit note' : 'Add note', shortcut: 'Shift+Enter', action: () => openNoteEditor(node.id) });
     items.push({ label: 'Delete', shortcut: 'Backspace', danger: true, action: () => deleteItem(node.id) });
@@ -3192,6 +3223,9 @@ function startEdit(id, evt) {
     if (!rec) return;
     editing = true;
     unrenderMath(rec.text);
+    // Inverted from the build-time default: editing is what makes the text live, and both
+    // exit points (commitEdit, cancelEdit) turn it back off.
+    rec.text.contentEditable = 'true';
     rec.text.focus();
     if (evt && document.caretRangeFromPoint) {
         const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
@@ -3211,6 +3245,13 @@ function startEdit(id, evt) {
     sel.addRange(range);
 }
 
+// Shortcuts that need a caret have to open the editor first: on a merely selected row the
+// caret is gone, and formatting shortcuts would otherwise rewrite the entire item.
+function ensureEditing(id) {
+    if (editing) return;
+    startEdit(id);
+}
+
 /**
  * Commit the edited row into local state and queue the write.
  *
@@ -3223,6 +3264,7 @@ function commitEdit(id) {
     const rec = rows.get(id);
     if (!rec) return false;
     editing = false;
+    if (rec.text) rec.text.contentEditable = 'false';
     acHide();
     const value = contentFromElement(rec.text);
     if (value === (rec.node.content || '')) {
@@ -3240,6 +3282,7 @@ function cancelEdit(id) {
     const rec = rows.get(id);
     if (!rec) return;
     editing = false;
+    if (rec.text) rec.text.contentEditable = 'false';
     acHide();
     rec.text.innerHTML = contentHtml(rec.node.content || '');
     wireInlineImages(rec.text, id);
@@ -3798,6 +3841,7 @@ function scheduleLiveRender(textEl, id) {
         wireInlineImages(textEl, id);
         unrenderMath(textEl);
         editing = true;
+        textEl.contentEditable = 'true';
         textEl.focus();
         setCaretToEnd(textEl);
     }, 260);
@@ -5555,9 +5599,16 @@ function wireToolbar() {
             else if (act === 'view-options') toggleViewOptions(btn);
             else if (act === 'zoom-in') zoomInto(selectedId);
             else if (act === 'note') openNoteEditor(selectedId);
-            else if (act === 'bold') applyFormat(selectedId, '**', '**');
-            else if (act === 'italic') applyFormat(selectedId, '__', '__');
-            else if (act === 'code') applyFormat(selectedId, '`', '`');
+            else if (act === 'bold') {
+                ensureEditing(selectedId);
+                applyFormat(selectedId, '**', '**');
+            } else if (act === 'italic') {
+                ensureEditing(selectedId);
+                applyFormat(selectedId, '__', '__');
+            } else if (act === 'code') {
+                ensureEditing(selectedId);
+                applyFormat(selectedId, '`', '`');
+            }
             else if (act === 'heading') toggleHeading(selectedId);
             else if (act === 'color') cycleColor(selectedId);
             else if (act === 'indent') {
@@ -5813,7 +5864,10 @@ function wireOutline() {
             } else if (e.shiftKey && key === 'e') {
                 e.preventDefault();
                 e.stopPropagation();
-                if (selectedId) applyFormat(selectedId, '`', '`');
+                if (selectedId) {
+                    ensureEditing(selectedId);
+                    applyFormat(selectedId, '`', '`');
+                }
             } else if (key === 'e') {
                 e.preventDefault();
                 e.stopPropagation();
@@ -5821,15 +5875,24 @@ function wireOutline() {
             } else if (!e.shiftKey && key === 'b') {
                 e.preventDefault();
                 e.stopPropagation();
-                if (selectedId) applyFormat(selectedId, '**', '**');
+                if (selectedId) {
+                    ensureEditing(selectedId);
+                    applyFormat(selectedId, '**', '**');
+                }
             } else if (!e.shiftKey && key === 'i') {
                 e.preventDefault();
                 e.stopPropagation();
-                if (selectedId) applyFormat(selectedId, '__', '__');
+                if (selectedId) {
+                    ensureEditing(selectedId);
+                    applyFormat(selectedId, '__', '__');
+                }
             } else if (!e.shiftKey && key === 'k') {
                 e.preventDefault();
                 e.stopPropagation();
-                if (selectedId) openLinkPicker(selectedId);
+                if (selectedId) {
+                    ensureEditing(selectedId);
+                    openLinkPicker(selectedId);
+                }
             } else if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
                 e.preventDefault();
                 if (multi.size > 1) bulkDelete();
@@ -5998,6 +6061,13 @@ function wireOutline() {
         } else if (e.key === 'Escape') {
             e.preventDefault();
             if (multi.size) clearMulti();
+        } else if (isPrintableKey(e) && selectedId) {
+            // Type-to-edit: with a click-only selection the editor has to open on the first
+            // character, otherwise typing on a selected row does nothing. The caret sits at
+            // the end of the text because that is where startEdit puts it.
+            e.preventDefault();
+            startEdit(selectedId);
+            document.execCommand('insertText', false, e.key);
         }
     });
 }
