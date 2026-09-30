@@ -113,6 +113,10 @@ function attachUnloadFlush() {
  *   checked?: boolean, heading?: number, color?: string|null, bullet?: string}} payload
  */
 export function queueCreate(documentId, tmpId, payload) {
+    // A falsy documentId -- most often null, from a call racing a navigation away from the
+    // document -- must never become a queue key: that key would sit there forever retrying
+    // requests against /documents/null/... instead of the write just being dropped, visibly.
+    if (!documentId) return;
     const s = stateFor(documentId);
     s.creates.set(tmpId, { ...payload, parent_id: resolveId(payload.parent_id) });
     scheduleFlush(documentId);
@@ -123,6 +127,7 @@ export function queueCreate(documentId, tmpId, payload) {
  * values are ever sent.
  */
 export function queuePatch(documentId, itemId, patch) {
+    if (!documentId) return;
     const s = stateFor(documentId);
     itemId = resolveId(itemId);
 
@@ -154,6 +159,7 @@ export function queuePatch(documentId, itemId, patch) {
  * @param {Iterable<[string, object]>} entries item id => patch
  */
 export function queuePatches(documentId, entries) {
+    if (!documentId) return;
     const list = [...entries];
     if (!list.length) return;
 
@@ -184,6 +190,7 @@ export function queuePatches(documentId, entries) {
  * @param {Iterable<string>} itemIds
  */
 export function queueStructure(documentId, op, itemIds) {
+    if (!documentId) return;
     const ids = [...itemIds].map(resolveId);
     if (!ids.length) return;
 
@@ -206,6 +213,7 @@ export function queueStructure(documentId, op, itemIds) {
  * @param {Iterable<{id: string, parent_id: string|null, position?: number|null}>} moves
  */
 export function queueMoves(documentId, moves) {
+    if (!documentId) return;
     const list = [...moves];
     if (!list.length) return;
 
@@ -234,6 +242,7 @@ export function queueMoves(documentId, moves) {
  * patches are ignored, so an update is never sent for a removed item.
  */
 export function queueDelete(documentId, itemIds) {
+    if (!documentId) return;
     const ids = [...new Set([...(Array.isArray(itemIds) ? itemIds : [itemIds])].map(resolveId))];
     if (!ids.length) return;
 

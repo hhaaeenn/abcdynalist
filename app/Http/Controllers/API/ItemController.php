@@ -1925,6 +1925,15 @@ class ItemController extends Controller
         }
 
         foreach ($incoming as $id => $fields) {
+            // A snapshot taken while a just-pasted/just-typed item's create batch hadn't
+            // resolved yet still has the client's tmp id in it. `new ObjectId()` throws on
+            // anything that isn't a 24-char hex string, which used to abort the whole
+            // restore (and everything after the bad row) with a 500. There is nothing to
+            // restore for it anyway -- it was never actually saved -- so skip it instead.
+            if (! preg_match('/^[a-f0-9]{24}$/i', (string) $id)) {
+                continue;
+            }
+
             $item = Item::withTrashed()->where('user_id', $user->id)->find($id);
 
             if (! $item) {
@@ -1944,7 +1953,7 @@ class ItemController extends Controller
             }
         }
 
-        $ids = array_keys($incoming);
+        $ids = array_values(array_filter(array_keys($incoming), fn ($id) => preg_match('/^[a-f0-9]{24}$/i', (string) $id)));
         Item::where('document_id', $documentId)->whereNotIn('id', $ids)->delete();
 
         return response()->json([

@@ -503,13 +503,11 @@ function parseClipboardItems(clipboardData) {
                     }
                 }
             };
-            const body = doc.body;
-            for (const child of body.children) {
-                const tag = child.tagName.toLowerCase();
-                if (tag === 'ul' || tag === 'ol' || tag === 'div') {
-                    walk(child, 0);
-                }
-            }
+            // Walk body itself with the same per-child dispatch used at every deeper level,
+            // instead of only descending into ul/ol/div -- a top-level line wrapped in
+            // anything else (p, h1, span, a bare text node's parent, ...) used to be silently
+            // dropped because it never matched that tag allowlist.
+            walk(doc.body, 0);
             // HTML membawa struktur bertingkat (indent > 0) = sumber hierarki terpercaya.
             if (items.length && items.some((i) => i.indent > 0)) return items;
             // HTML datar (semua indent 0): biasanya teks polos berindentasi disalin sebagai
