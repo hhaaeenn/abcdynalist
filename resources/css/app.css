@@ -662,6 +662,13 @@ body[data-theme='dark'] .is-checked-text {
     outline: none;
 }
 
+/* selectItem() focuses the row div as an intermediate step before startEdit() moves focus
+   onto the text -- if that hand-off is ever skipped, the row must not show the browser's
+   default focus ring. The caret inside .item-text is the only marker of the active row. */
+.item-row:focus {
+    outline: none;
+}
+
 .item-note {
     border-left: 2px solid rgb(192 122 18 / 0.35);
     padding-left: 8px;
