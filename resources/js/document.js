@@ -198,7 +198,7 @@ function notifyDueReminders() {
     for (const r of due) {
         const rel = r.node.document_id === docId ? '' : ' (dokumen lain)';
         try {
-            new Notification('ABCLIST â€” Pengingat', {
+            new Notification('ABCLIST — Pengingat', {
                 body: `"${(r.node.content || '(tanpa judul)').slice(0, 120)}"${rel}\nJatuh tempo ${r.at.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}`,
             });
         } catch {
@@ -504,7 +504,7 @@ function parseClipboardItems(clipboardData) {
                     lines.push(cur);
                     return lines.map((l) => l.trim()).filter(Boolean);
                 };
-                const clean = (s) => s.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, '');
+                const clean = (s) => s.replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
                 for (const child of children) {
                     const tag = child.tagName.toLowerCase();
                     if (tag === 'ul' || tag === 'ol') {
@@ -560,7 +560,7 @@ function parsePlainTextItems(text) {
             const spaces = (leadMatch[2] || '').length;
             if (spaces > 0) indent += Math.floor(spaces / 2) || (spaces > 0 ? 1 : 0);
         }
-        const content = raw.replace(/^[\t ]+/, '').replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, '');
+        const content = raw.replace(/^[\t ]+/, '').replace(/^[-*•]\s+/, '').replace(/^\d+[.)]\s+/, '');
         items.push({ content, indent });
     }
     return items;
@@ -903,7 +903,7 @@ function buildRow(node, depth) {
         noteEl = document.createElement('div');
         noteEl.className = 'item-note mt-0.5 text-[12.5px] text-[#8a857e]';
         if (notesMode === 'first') {
-            noteEl.innerHTML = contentHtml(node.note.split('\n')[0] + (node.note.includes('\n') ? ' â€¦' : ''));
+            noteEl.innerHTML = contentHtml(node.note.split('\n')[0] + (node.note.includes('\n') ? ' …' : ''));
         } else {
             noteEl.innerHTML = contentHtml(node.note);
         }
@@ -1137,7 +1137,7 @@ function buildRow(node, depth) {
         const curPos = siblingPosition(curNode);
 
         // Susun snapshot bercabang dari daftar {content, indent} yang flat,
-        // lalu insert LOKAL & render dulu (instan) â€” baru simpan ke server
+        // lalu insert LOKAL & render dulu (instan) — baru simpan ke server
         // di background, tiap cabang top-level diparalelkan.
         const buildSnapshotTree = (lines) => {
             const root = { children: [] };
@@ -1189,6 +1189,13 @@ function buildRow(node, depth) {
             e.preventDefault();
             e.stopPropagation();
             navigateLink(link.dataset.id);
+            return;
+        }
+        const pill = e.target.closest('.item-tag, .item-date');
+        if (pill && e.altKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            removeTagOrDateFromItem(node.id, pill.textContent);
             return;
         }
         if (!editing) {
@@ -1432,6 +1439,23 @@ async function deleteImage(id, url) {
     if (next !== content) {
         queuePatch(docId, id, { content: next });
     }
+}
+
+/** Alt+click on a #tag or !date pill deletes it instantly, the way Dynalist does. */
+function removeTagOrDateFromItem(id, matchText) {
+    const rec = rows.get(id);
+    if (!rec || !matchText) return;
+    const content = rec.node.content || '';
+    const idx = content.indexOf(matchText);
+    if (idx === -1) return;
+    recordUndo();
+    const next = (content.slice(0, idx) + content.slice(idx + matchText.length))
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+    rec.node.content = next;
+    rec.text.innerHTML = contentHtml(next);
+    wireInlineImages(rec.text, id);
+    queuePatch(docId, id, { content: next });
 }
 
 function contentFromElement(el) {
@@ -2023,7 +2047,7 @@ function openListExportDialog(itemId) {
     Swal.fire({
         title: 'Export list',
         html: `<div class="text-left">
-            <p class="mb-2 text-[13px]">Export <b>${esc(label || '(tanpa nama)')}</b> beserta sub-itemnya â€” salin konten di bawah atau unduh sebagai file.</p>
+            <p class="mb-2 text-[13px]">Export <b>${esc(label || '(tanpa nama)')}</b> beserta sub-itemnya — salin konten di bawah atau unduh sebagai file.</p>
             <div class="flex items-center gap-2">
                 <select id="list-export-format" class="flex-1 rounded-md border border-[#e0dcd5] px-2 py-1.5 text-[13px] bg-white">
                     <option value="markdown">Markdown (.md)</option>
@@ -2640,7 +2664,7 @@ function menuItemsFor(node) {
             ],
         });
     }
-    items.push({ label: 'Search and replaceâ€¦', action: () => openSr() });
+    items.push({ label: 'Search and replace…', action: () => openSr() });
     items.push('sep');
 
     if (siblingPosition(node) > 0) {
@@ -2665,7 +2689,7 @@ function menuItemsFor(node) {
             },
         });
     }
-    items.push({ label: 'Move toâ€¦', shortcut: 'Ctrl+Shift+M', action: () => openMovePicker(node.id) });
+    items.push({ label: 'Move to…', shortcut: 'Ctrl+Shift+M', action: () => openMovePicker(node.id) });
 
     const userTpls = getUserTemplates();
     const tplChildren = [
@@ -2675,7 +2699,7 @@ function menuItemsFor(node) {
         })),
     ];
     if (userTpls.length) {
-        tplChildren.push({ label: 'â€”' });
+        tplChildren.push({ label: '—' });
         userTpls.forEach((t) => {
             tplChildren.push({
                 label: t.name,
@@ -2683,13 +2707,13 @@ function menuItemsFor(node) {
             });
         });
     }
-    items.push({ label: 'Insert templateâ€¦', children: tplChildren });
+    items.push({ label: 'Insert template…', children: tplChildren });
     if (hasChildren || node.content) {
-        items.push({ label: 'Save as templateâ€¦', action: () => saveAsTemplate(node.id) });
+        items.push({ label: 'Save as template…', action: () => saveAsTemplate(node.id) });
     }
     items.push('sep');
 
-    // Checkbox â€” tampilkan sesuai state saat ini (persis ABCLIST)
+    // Checkbox — tampilkan sesuai state saat ini (persis ABCLIST)
     const isChecklist = (node.bullet || 'bullet') === 'checklist';
     if (!isChecklist) {
         items.push({ label: 'Add checkbox', shortcut: 'Ctrl+Shift+C', action: () => setBullet(node.id, 'checklist') });
@@ -2713,11 +2737,11 @@ function menuItemsFor(node) {
     }
     items.push('sep');
 
-    items.push({ label: 'Manage sharingâ€¦', action: () => openItemSharing() });
+    items.push({ label: 'Manage sharing…', action: () => openItemSharing() });
     items.push({ label: 'Get link', action: () => copyItemLink(node.id) });
     items.push({ label: 'Copy internal link', action: () => copyInternalLink(node.id) });
     items.push({ label: 'Show all references', action: () => openBacklinks(node.id) });
-    items.push({ label: 'Exportâ€¦', action: () => openListExportDialog(node.id) });
+    items.push({ label: 'Export…', action: () => openListExportDialog(node.id) });
     const inboxDoc = findInbox();
     if (inboxDoc) {
         items.push({
@@ -2793,7 +2817,7 @@ function menuItemsFor(node) {
         items.push({ label: 'Deduplicate children', action: () => deduplicateChildren(node.id) });
     }
     items.push('sep');
-    items.push({ label: 'Revision historyâ€¦', action: () => openRevisions(node.id) });
+    items.push({ label: 'Revision history…', action: () => openRevisions(node.id) });
 
     const currentBullet = node.bullet || 'bullet';
     items.push({
@@ -3015,7 +3039,7 @@ async function openRevisions(id) {
     if (!rec) return;
     Swal.fire({
         title: 'Revision history',
-        html: '<div class="text-left"><p id="rv-body" class="text-[13px] text-[#8a857e]">Memuatâ€¦</p></div>',
+        html: '<div class="text-left"><p id="rv-body" class="text-[13px] text-[#8a857e]">Memuat…</p></div>',
         showConfirmButton: false,
         showCloseButton: true,
         width: '480px',
@@ -3173,7 +3197,7 @@ function renderMenuItems(items) {
                 b.classList.add('flex', 'items-center', 'justify-between', 'gap-3');
                 const arrow = document.createElement('span');
                 arrow.className = 'text-[#b5b0a9]';
-                arrow.textContent = 'â€º';
+                arrow.textContent = '›';
                 b.append(arrow);
                 b.addEventListener('click', () => render(item.children, stack.concat(list)));
             } else {
@@ -3293,7 +3317,7 @@ function updateZoomBar() {
         const sep = document.createElement('span');
         sep.dataset.crumb = '1';
         sep.className = 'text-[#b5b0a9]';
-        sep.textContent = 'â€º';
+        sep.textContent = '›';
         const crumb = document.createElement('button');
         crumb.type = 'button';
         crumb.dataset.crumb = '1';
@@ -5097,7 +5121,7 @@ function renderTrash() {
 
         const bullet = document.createElement('span');
         bullet.className = 'shrink-0 mt-[3px] w-[13px] text-center text-[#8a857e] text-[12px]';
-        bullet.textContent = it.checked ? 'â˜‘' : (it.bullet === 'checklist' ? 'â˜' : 'â€¢');
+        bullet.textContent = it.checked ? '☑' : (it.bullet === 'checklist' ? '☐' : '•');
         row.append(bullet);
 
         const main = document.createElement('div');
@@ -5703,7 +5727,7 @@ function renderReminderPop() {
             row.className = 'view-opt w-full flex items-center gap-2 px-3 py-1.5 text-left';
             row.innerHTML = `<span class="w-5 h-5 shrink-0 flex items-center justify-center text-[#c07a12]">${SVG.clock}</span>
                 <span class="flex-1 min-w-0"><span class="block truncate">${escapeHtml(r.node.content || '(tanpa judul)')}</span>
-                <span class="block text-[11px] ${r.next < new Date() ? 'text-red-600' : 'text-[#8a857e]'}">${r.next.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}${r.next < new Date() ? ' â€” terlambat' : ''}</span></span>`;
+                <span class="block text-[11px] ${r.next < new Date() ? 'text-red-600' : 'text-[#8a857e]'}">${r.next.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}${r.next < new Date() ? ' — terlambat' : ''}</span></span>`;
             row.addEventListener('click', () => {
                 if (r.node.document_id === docId) {
                     zoomToItem(r.node.id);
