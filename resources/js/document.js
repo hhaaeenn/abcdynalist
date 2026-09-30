@@ -1070,6 +1070,11 @@ function buildRow(node, depth) {
         e.preventDefault();
         e.stopPropagation();
         const parsed = parseClipboardItems(e.clipboardData);
+        // TEMP DIAGNOSTIC -- remove once the "first line sometimes missing" paste bug is
+        // confirmed fixed.
+        console.log('[paste-debug row] html=', e.clipboardData.getData('text/html'));
+        console.log('[paste-debug row] text=', e.clipboardData.getData('text/plain'));
+        console.log('[paste-debug row] parsed=', JSON.parse(JSON.stringify(parsed)));
         if (!parsed.length) return;
         // Single line: just insert into current item at caret
         if (parsed.length === 1) {
@@ -5873,6 +5878,12 @@ function wireOutline() {
             return;
         }
         const parsed = parseClipboardItems(e.clipboardData);
+        // TEMP DIAGNOSTIC -- remove once the "first line sometimes missing" paste bug is
+        // confirmed fixed. Logs exactly what the parser produced and what it was fed.
+        console.log('[paste-debug] html=', e.clipboardData.getData('text/html'));
+        console.log('[paste-debug] text=', e.clipboardData.getData('text/plain'));
+        console.log('[paste-debug] parsed=', JSON.parse(JSON.stringify(parsed)));
+        console.log('[paste-debug] selectedId=', selectedId, 'rowExists=', !!(selectedId && rows.get(selectedId)));
         if (!parsed.length) return;
         e.preventDefault();
         const selRec = selectedId ? rows.get(selectedId) : null;
