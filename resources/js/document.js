@@ -1,5 +1,5 @@
 import { api, registerPendingItem, unregisterPendingItem, awaitTempId } from './api';
-import { queuePatch, queuePatches, queueStructure, queueMoves, queueDelete, flushNow, whenSettled, hasPending, dropPending, resetQueue } from './write-queue';
+import { queueCreate, queuePatch, queuePatches, queueStructure, queueMoves, queueDelete, flushNow, whenSettled, hasPending, dropPending, resetQueue } from './write-queue';
 import { toast } from './ui';
 import { store } from './store';
 import { showSuccess, showFailedAlert, esc, showPopupWithAction } from './alerts';
@@ -30,6 +30,45 @@ async function resolveParentAsync(id) {
     if (settled !== id) return settled;
     const pending = await awaitTempId(id);
     return pending || id;
+}
+
+/**
+ * Swap every bit of app state keyed by a tmp id over to its real id, once the write-queue's
+ * create batch that minted it comes back. Runs off the `dyn:ids-remapped` event, so it covers
+ * a create fired from anywhere (typing Enter, paste, drop) uniformly.
+ */
+function applyIdRemap(map) {
+    for (const [tempId, realId] of Object.entries(map)) {
+        if (!realId) continue;
+        rememberId(tempId, realId);
+        if (selectedId === tempId) selectedId = realId;
+        if (multi.has(tempId)) { multi.delete(tempId); multi.add(realId); }
+        if (selAnchor === tempId) selAnchor = realId;
+        if (selEdge === tempId) selEdge = realId;
+        if (collapsed.has(tempId)) { collapsed.delete(tempId); collapsed.add(realId); }
+        const rec = rows.get(tempId);
+        if (rec) {
+            rows.delete(tempId);
+            rows.set(realId, rec);
+            if (rec.node) rec.node.id = realId;
+            if (rec.row) rec.row.dataset.id = realId;
+        }
+        reparentTempChildren(tempId, realId);
+    }
+}
+
+/** Resolves once `tempId` appears in a dyn:ids-remapped event -- i.e. its create landed. */
+function awaitCreateRemap(tempId) {
+    return new Promise((resolve) => {
+        const handler = (e) => {
+            const map = e.detail || {};
+            if (Object.prototype.hasOwnProperty.call(map, tempId)) {
+                window.removeEventListener('dyn:ids-remapped', handler);
+                resolve(map[tempId]);
+            }
+        };
+        window.addEventListener('dyn:ids-remapped', handler);
+    });
 }
 let flat = [];
 let selectedId = null;
@@ -4229,46 +4268,23 @@ async function createItemAt(parentId, position, bullet, content) {
     selectItem(tempId);
     startEdit(tempId);
     const realParent = await resolveParentAsync(parentId);
-    const promise = api
-        .post(`/documents/${docId}/items`, {
-            parent_id: realParent,
-            ...(position != null ? { position } : {}),
-            content: node.content,
-            bullet: node.bullet,
-        })
-        .then((data) => data.data.id)
-        .catch((e) => {
-            unregisterPendingItem(tempId);
-            throw e;
-        });
+    // Coalesced like every other write: typing Enter several times in a row ships one
+    // items-create-batch call (up to 1.5s later) instead of an immediate POST per item.
+    queueCreate(docId, tempId, {
+        parent_id: realParent,
+        ...(position != null ? { position } : {}),
+        content: node.content,
+        note: node.note,
+        checked: node.checked,
+        heading: node.heading,
+        color: node.color,
+        bullet: node.bullet,
+    });
+    const promise = awaitCreateRemap(tempId);
     registerPendingItem(tempId, promise);
-    try {
-        const realId = await promise;
-        node.id = realId;
-        rememberId(tempId, realId);
-        if (selectedId === tempId) selectedId = realId;
-        if (multi.has(tempId)) { multi.delete(tempId); multi.add(realId); }
-        if (selAnchor === tempId) selAnchor = realId;
-        if (selEdge === tempId) selEdge = realId;
-        if (collapsed.has(tempId)) { collapsed.delete(tempId); collapsed.add(realId); }
-        const rec = rows.get(tempId);
-        if (rec) {
-            rows.delete(tempId);
-            rows.set(realId, rec);
-            rec.node = node;
-            if (rec.row) rec.row.dataset.id = realId;
-        }
-        unregisterPendingItem(tempId);
-        reparentTempChildren(tempId, realId);
-        return realId;
-    } catch (e) {
-        removeNodeLocally(tempId);
-        buildFlat();
-        applyZoomFilter();
-        render();
-        showFailedAlert(e.message);
-        return null;
-    }
+    const realId = await promise;
+    unregisterPendingItem(tempId);
+    return realId;
 }
 
 async function createItemsBatch(nodes, parentId, startPos) {
@@ -6195,7 +6211,7 @@ export function init() {
     applySpacing();
     applyPrefsVisual();
     wireSettings();
-    window.addEventListener('dyn:save-start', () => setSaveStatus('Menyimpanâ€¦', false));
+    window.addEventListener('dyn:save-start', () => setSaveStatus('Menyimpan…', false));
     window.addEventListener('dyn:save-end', () => setSaveStatus('Tersimpan', true));
     // A failed flush keeps the work queued for the next attempt, so tell the user without
     // reloading the document (a reload would throw away the local state they are editing).
@@ -6203,6 +6219,10 @@ export function init() {
         setSaveStatus('Gagal menyimpan', false);
         showFailedAlert('Perubahan belum tersimpan: ' + (e.detail?.message || 'kesalahan jaringan'));
     });
+    // A queued create resolves to its real id whenever its batch flushes (up to 1.5s later,
+    // not immediately), so the app's own state -- keyed by the tmp id until now -- has to be
+    // swapped over here rather than right after the item was typed.
+    window.addEventListener('dyn:ids-remapped', (e) => applyIdRemap(e.detail || {}));
     els.zoomBar = createZoomBar();
     els.container.insertBefore(els.zoomBar, els.outline);
     updateZoomBar();

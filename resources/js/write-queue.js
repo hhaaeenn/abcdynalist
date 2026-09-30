@@ -28,8 +28,20 @@ const RETRY_BASE_MS = 1000;
 /** documentId => queued state */
 const queues = new Map();
 
+// tmp_id -> real_id, filled in as create batches come back. A patch/move/delete queued for
+// an item can arrive with a tmp id that was already resolved by an earlier flush (the create
+// and the follow-up edit landed in different debounce windows) -- every queue* function
+// resolves its id(s) through this before touching any Map/Set, so a stale tmp id never ends
+// up keyed separately from the real item.
+const resolvedIds = new Map();
+
+function resolveId(id) {
+    return id == null ? id : (resolvedIds.get(id) || id);
+}
+
 function emptyState() {
     return {
+        creates: new Map(), // tmpId => item payload (parent_id, content, ...)
         patches: new Map(), // itemId => patch object (merged, last write wins)
         deleted: new Set(), // itemIds queued for deletion
         structural: new Map(), // op => Set(itemId)
@@ -93,14 +105,38 @@ function attachUnloadFlush() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Queue a brand-new item. Coalesces the same way patches do: typing Enter N times in a row
+ * ships one items-create-batch call instead of N immediate POSTs. `tmpId` is the client's
+ * temporary id for the row; once the batch flushes, `dyn:ids-remapped` carries the real id.
+ *
+ * @param {{parent_id: string|null, position?: number, content?: string, note?: string,
+ *   checked?: boolean, heading?: number, color?: string|null, bullet?: string}} payload
+ */
+export function queueCreate(documentId, tmpId, payload) {
+    const s = stateFor(documentId);
+    s.creates.set(tmpId, { ...payload, parent_id: resolveId(payload.parent_id) });
+    scheduleFlush(documentId);
+}
+
+/**
  * Queue a partial update for one item. Repeated calls merge, so only the final field
  * values are ever sent.
  */
 export function queuePatch(documentId, itemId, patch) {
     const s = stateFor(documentId);
+    itemId = resolveId(itemId);
 
     // A queued delete always wins over a queued patch for the same item.
     if (s.deleted.has(itemId)) return;
+
+    // The item hasn't even been created on the server yet -- fold the edit into its create
+    // payload instead of scheduling a PATCH for an id that doesn't exist there.
+    const pendingCreate = s.creates.get(itemId);
+    if (pendingCreate) {
+        Object.assign(pendingCreate, patch);
+        scheduleFlush(documentId);
+        return;
+    }
 
     const existing = s.patches.get(itemId);
     if (existing) {
@@ -122,8 +158,14 @@ export function queuePatches(documentId, entries) {
     if (!list.length) return;
 
     const s = stateFor(documentId);
-    for (const [itemId, patch] of list) {
+    for (let [itemId, patch] of list) {
+        itemId = resolveId(itemId);
         if (s.deleted.has(itemId)) continue;
+        const pendingCreate = s.creates.get(itemId);
+        if (pendingCreate) {
+            Object.assign(pendingCreate, patch);
+            continue;
+        }
         const existing = s.patches.get(itemId);
         if (existing) {
             Object.assign(existing, patch);
@@ -142,7 +184,7 @@ export function queuePatches(documentId, entries) {
  * @param {Iterable<string>} itemIds
  */
 export function queueStructure(documentId, op, itemIds) {
-    const ids = [...itemIds];
+    const ids = [...itemIds].map(resolveId);
     if (!ids.length) return;
 
     const s = stateFor(documentId);
@@ -169,11 +211,19 @@ export function queueMoves(documentId, moves) {
 
     const s = stateFor(documentId);
     for (const move of list) {
-        if (s.deleted.has(move.id)) continue;
-        s.moves.set(move.id, {
-            parent_id: move.parent_id ?? null,
-            position: move.position ?? null,
-        });
+        const id = resolveId(move.id);
+        if (s.deleted.has(id)) continue;
+        const parent_id = resolveId(move.parent_id ?? null);
+        const position = move.position ?? null;
+        // Not created on the server yet -- update where it will be born instead of moving
+        // something that doesn't exist there.
+        const pendingCreate = s.creates.get(id);
+        if (pendingCreate) {
+            pendingCreate.parent_id = parent_id;
+            if (position != null) pendingCreate.position = position;
+            continue;
+        }
+        s.moves.set(id, { parent_id, position });
     }
 
     scheduleFlush(documentId);
@@ -184,12 +234,14 @@ export function queueMoves(documentId, moves) {
  * patches are ignored, so an update is never sent for a removed item.
  */
 export function queueDelete(documentId, itemIds) {
-    const ids = [...new Set([...(Array.isArray(itemIds) ? itemIds : [itemIds])])];
+    const ids = [...new Set([...(Array.isArray(itemIds) ? itemIds : [itemIds])].map(resolveId))];
     if (!ids.length) return;
 
     const s = stateFor(documentId);
 
     for (const id of ids) {
+        // Never created on the server -- there is nothing to delete there, just forget it.
+        if (s.creates.delete(id)) continue;
         s.patches.delete(id);
         s.moves.delete(id);
         s.deleted.add(id);
@@ -208,11 +260,13 @@ export function dropPending(documentId, itemIds) {
     const s = queues.get(documentId);
     if (!s) return;
     for (const id of Array.isArray(itemIds) ? itemIds : [itemIds]) {
-        s.patches.delete(id);
-        s.deleted.delete(id);
-        s.moves.delete(id);
+        const resolved = resolveId(id);
+        s.creates.delete(resolved);
+        s.patches.delete(resolved);
+        s.deleted.delete(resolved);
+        s.moves.delete(resolved);
         for (const set of s.structural.values()) {
-            set.delete(id);
+            set.delete(resolved);
         }
     }
 }
@@ -236,7 +290,7 @@ export function whenSettled(documentId) {
 export function hasPending(documentId) {
     const s = queues.get(documentId);
     if (!s) return false;
-    return s.patches.size > 0 || s.deleted.size > 0 || s.structural.size > 0 || s.moves.size > 0;
+    return s.creates.size > 0 || s.patches.size > 0 || s.deleted.size > 0 || s.structural.size > 0 || s.moves.size > 0;
 }
 
 /** Forget a document's queue, e.g. after switching documents. */
@@ -244,6 +298,7 @@ export function resetQueue(documentId) {
     const s = queues.get(documentId);
     if (!s) return;
     if (s.timer) clearTimeout(s.timer);
+    s.creates.clear();
     s.patches.clear();
     s.deleted.clear();
     s.structural.clear();
@@ -268,11 +323,15 @@ function chunk(list, size) {
 /**
  * Drain the queue into a list of tagged HTTP calls.
  *
- * Ordering is deliberate: patches first, then structural changes, then deletes. For any
- * given item that guarantees its update is applied before its removal, which is what stops
- * the "deleted but shows an error" race.
+ * Ordering is deliberate: creates first (everything else may reference their real ids),
+ * then patches, then structural changes, then deletes. For any given item that guarantees
+ * its update is applied before its removal, which is what stops the "deleted but shows an
+ * error" race.
  */
 function takeWork(documentId, s) {
+    const createEntries = [...s.creates.entries()];
+    s.creates.clear();
+
     const patchEntries = [...s.patches.entries()];
     s.patches.clear();
 
@@ -290,6 +349,15 @@ function takeWork(documentId, s) {
     s.firstQueuedAt = 0;
 
     const calls = [];
+
+    for (const part of chunk(createEntries, BATCH_LIMIT)) {
+        calls.push({
+            kind: 'create',
+            method: 'POST',
+            path: `/documents/${documentId}/items-create-batch`,
+            body: { items: part.map(([tmp_id, payload]) => ({ tmp_id, ...payload })) },
+        });
+    }
 
     for (const part of chunk(patchEntries, BATCH_LIMIT)) {
         calls.push({
@@ -358,7 +426,15 @@ async function flush(documentId) {
 
         for (const call of calls) {
             try {
-                await send(call, 0);
+                const res = await send(call, 0);
+                if (call.kind === 'create' && res && res.map) {
+                    for (const [tmp, real] of Object.entries(res.map)) {
+                        resolvedIds.set(tmp, real);
+                    }
+                    // The app's own state (rows, selectedId, ...) still keys these by tmp
+                    // id -- this is what lets it swap them for the real ones.
+                    window.dispatchEvent(new CustomEvent('dyn:ids-remapped', { detail: res.map }));
+                }
             } catch (e) {
                 // Put the work back before moving on, otherwise a single failed request
                 // silently discards the user's edits.
@@ -384,6 +460,14 @@ async function flush(documentId) {
 }
 
 function requeue(s, call) {
+    if (call.kind === 'create') {
+        for (const item of call.body.items) {
+            const { tmp_id, ...payload } = item;
+            s.creates.set(tmp_id, payload);
+        }
+        return;
+    }
+
     if (call.kind === 'patch') {
         for (const row of call.body.items) {
             const { id, ...patch } = row;
@@ -452,9 +536,11 @@ function sleep(ms) {
 /**
  * Best-effort final flush while the page is closing.
  *
- * A normal fetch is cancelled on unload, so these go out with `keepalive: true`. Only the
- * patch batch is sent this way; anything else is put back on the queue so the regular
- * flush still handles it.
+ * A normal fetch is cancelled on unload, so these go out with `keepalive: true`. Patches and
+ * creates go this way -- a still-pending create already carries the latest typed content
+ * (queuePatch folds it straight into the create payload while it's unflushed), so this is
+ * also what ships a just-typed new item instead of losing it. Everything else is put back on
+ * the queue so the regular flush still handles it.
  */
 function flushOnUnload(documentId) {
     const s = queues.get(documentId);
@@ -465,7 +551,7 @@ function flushOnUnload(documentId) {
     const calls = takeWork(documentId, s);
 
     for (const call of calls) {
-        if (call.kind === 'patch') {
+        if (call.kind === 'patch' || call.kind === 'create') {
             beaconWrite(call.path, call.body).catch(() => {});
         } else {
             requeue(s, call);
@@ -474,6 +560,7 @@ function flushOnUnload(documentId) {
 }
 
 export const writeQueue = {
+    queueCreate,
     queuePatch,
     queuePatches,
     queueStructure,
