@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\NormalizesDateAttributes;
 use Laravel\Sanctum\PersonalAccessToken as SanctumPersonalAccessToken;
 use MongoDB\Laravel\Eloquent\DocumentModel;
 use MongoDB\Laravel\Query\Builder;
 
 class PersonalAccessToken extends SanctumPersonalAccessToken
 {
-    use DocumentModel;
+    use DocumentModel, NormalizesDateAttributes;
 
     protected $connection = 'mongodb';
 

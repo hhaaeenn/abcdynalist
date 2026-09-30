@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\NormalizesDateAttributes;
 use MongoDB\Laravel\Eloquent\Model;
 
 class Bookmark extends Model
 {
+    use NormalizesDateAttributes;
+
     protected $connection = 'mongodb';
 
     protected $table = 'bookmarks';

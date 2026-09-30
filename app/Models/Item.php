@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\NormalizesDateAttributes;
 use MongoDB\Laravel\Eloquent\Model;
 use MongoDB\Laravel\Eloquent\SoftDeletes;
 
 class Item extends Model
 {
-    use SoftDeletes;
+    use NormalizesDateAttributes, SoftDeletes;
 
     protected $connection = 'mongodb';
 

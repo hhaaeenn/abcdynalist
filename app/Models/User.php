@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\NormalizesDateAttributes;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use MongoDB\Laravel\Auth\User as Authenticatable;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, Notifiable;
+    use HasApiTokens, NormalizesDateAttributes, Notifiable;
 
     protected $connection = 'mongodb';
 
