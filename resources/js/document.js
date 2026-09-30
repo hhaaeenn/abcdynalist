@@ -653,6 +653,14 @@ function render() {
                 e.preventDefault();
                 e.stopPropagation();
                 addItem();
+            } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                // Typing straight into the empty-document placeholder creates the first item
+                // with that keystroke already in it, instead of requiring Enter first.
+                e.preventDefault();
+                e.stopPropagation();
+                addItem().then(() => {
+                    document.execCommand('insertText', false, e.key);
+                });
             }
         });
         els.outline.append(empty);
