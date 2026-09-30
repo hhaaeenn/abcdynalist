@@ -1494,11 +1494,9 @@ async function bulkDelete({ fromKeyboard = false } = {}) {
     selEdge = null;
     if (selectedId && allIds.has(selectedId)) selectedId = null;
     buildFlat();
-    if (fullRender) {
+    if (fullRender || !removeRowsSurgically(allIds)) {
         applyZoomFilter();
         render();
-    } else {
-        removeRowsSurgically(allIds);
     }
     const list = renderedFlat();
     const target = list[Math.max(0, Math.min(idx, list.length - 1))];
@@ -4056,14 +4054,14 @@ async function deleteItem(id, { fromKeyboard = false } = {}) {
     for (const sid of subtreeIds) { collapsed.delete(sid); multi.delete(sid); }
     if (selectedId === id) selectedId = null;
     buildFlat();
-    if (fullRender) {
+    // The common case: only the deleted subtree's DOM comes out, everything else on screen
+    // is untouched -- no full rebuild, no KaTeX re-render, so a Backspace-hold chain stays
+    // fast even on a large document. Falls back to a full render() if either the caller
+    // already knows it must (fullRender), or the surgical removal finds the bookkeeping
+    // doesn't match reality and refuses to guess.
+    if (fullRender || !removeRowsSurgically(subtreeIds)) {
         applyZoomFilter();
         render();
-    } else {
-        // The common case: only the deleted subtree's DOM comes out, everything else on
-        // screen is untouched -- no full rebuild, no KaTeX re-render, so a Backspace-hold
-        // chain stays fast even on a large document.
-        removeRowsSurgically(subtreeIds);
     }
     const list = renderedFlat();
     const target = list[Math.max(0, Math.min(idx, list.length - 1))];
@@ -4215,8 +4213,20 @@ function needsFullRender(idsToRemove) {
     return !renderedFlat().some((f) => !idsToRemove.has(f.node.id));
 }
 
-/** Remove exactly these rows' DOM and bookkeeping without rebuilding the rest of the outline. */
+/**
+ * Remove exactly these rows' DOM and bookkeeping without rebuilding the rest of the outline.
+ *
+ * Returns false instead of doing a partial job when `rows`/`lastVisibleIds` disagree with
+ * what's actually asked to disappear (a row marked visible has no DOM entry) -- some other
+ * bug left the app's bookkeeping out of sync with reality, and a surgical removal built on
+ * bad bookkeeping would report success while leaving orphaned rows on screen. The caller
+ * falls back to a full render() in that case, which rebuilds everything from `flat` and
+ * can't drift from what's actually shown.
+ */
 function removeRowsSurgically(idsToRemove) {
+    for (const id of idsToRemove) {
+        if (lastVisibleIds.has(id) && !rows.has(id)) return false;
+    }
     for (const id of idsToRemove) {
         rows.get(id)?.row.remove();
         rows.delete(id);
@@ -4225,6 +4235,7 @@ function removeRowsSurgically(idsToRemove) {
     renderedOrder = renderedOrder.filter((f) => !idsToRemove.has(f.node.id));
     updateWordCount();
     updateReminderBadge();
+    return true;
 }
 
 function insertNodeLocally(parentId, position, node) {
