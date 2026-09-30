@@ -17,7 +17,11 @@ import { api, requestRaw, beaconWrite, getToken, awaitTempId, registerPendingIte
  */
 
 const BATCH_LIMIT = 200;
-const DEBOUNCE_MS = 400;
+// Typing pauses usually mean the user moved on to the next item, so a whole burst of
+// items should land as one request. The cap keeps a continuous typing run from sitting in
+// memory forever: whatever else is queued, the oldest pending write leaves after 5s.
+const DEBOUNCE_MS = 1500;
+const MAX_WAIT_MS = 5000;
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 
@@ -30,6 +34,7 @@ function emptyState() {
         deleted: new Set(), // itemIds queued for deletion
         structural: new Map(), // op => Set(itemId)
         moves: new Map(), // itemId => { parent_id, position }
+        firstQueuedAt: 0, // when the oldest unflushed write was queued (drives MAX_WAIT_MS)
         timer: null,
         inFlight: null,
         dirty: false,
@@ -49,11 +54,19 @@ function scheduleFlush(documentId) {
     const s = queues.get(documentId);
     if (!s || s.destroyed) return;
 
+    const now = Date.now();
+    if (!s.firstQueuedAt) s.firstQueuedAt = now;
+    // Debounce, but never past the point where the oldest pending write is MAX_WAIT_MS old:
+    // typing without a pause resets the timer over and over, so the cap is what guarantees
+    // the data still ships.
+    const wait = Math.min(DEBOUNCE_MS, Math.max(0, s.firstQueuedAt + MAX_WAIT_MS - now));
+
     if (s.timer) clearTimeout(s.timer);
     s.timer = setTimeout(() => {
         s.timer = null;
+        s.firstQueuedAt = 0;
         flush(documentId);
-    }, DEBOUNCE_MS);
+    }, wait);
 }
 
 let unloadBound = false;
@@ -235,6 +248,7 @@ export function resetQueue(documentId) {
     s.deleted.clear();
     s.structural.clear();
     s.moves.clear();
+    s.firstQueuedAt = 0;
     s.destroyed = true;
     queues.delete(documentId);
 }
@@ -270,6 +284,10 @@ function takeWork(documentId, s) {
 
     const moves = [...s.moves.entries()].map(([id, m]) => ({ id, ...m }));
     s.moves.clear();
+
+    // The queue is drained, so the coalescing window closes with it; the next write starts
+    // a fresh window.
+    s.firstQueuedAt = 0;
 
     const calls = [];
 
@@ -318,7 +336,10 @@ function takeWork(documentId, s) {
 async function flush(documentId) {
     const s = queues.get(documentId);
     if (!s || s.destroyed) return;
-    if (!hasPending(documentId)) return;
+    if (!hasPending(documentId)) {
+        s.firstQueuedAt = 0;
+        return;
+    }
 
     // Only one flush may be in flight. Anything queued meanwhile is marked dirty and
     // picked up by the follow-up run, which pins request concurrency at 1.

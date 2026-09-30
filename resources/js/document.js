@@ -819,7 +819,7 @@ function buildRow(node, depth) {
     del.type = 'button';
     del.className = 'item-del opacity-0 group-hover:opacity-100 shrink-0 mt-[3px] w-5 h-5 flex items-center justify-center rounded text-[#8a857e] hover:text-red-600 transition-opacity';
     del.innerHTML = SVG.trash;
-    del.title = 'Hapus item (Ctrl+Shift+Backspace)';
+    del.title = 'Hapus item (Backspace)';
     del.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteItem(node.id);
@@ -1207,6 +1207,16 @@ function isCaretAtStart(textEl) {
     r.selectNodeContents(textEl);
     r.setEnd(range.startContainer, range.startOffset);
     return r.toString() === '';
+}
+
+// The outline keydown handler also sees keys that come from real form fields: the note
+// editor is a <textarea> rendered inside the row, and the row never sets `editing` while
+// it is open. Without this guard a Backspace meant to erase a character in the note would
+// delete the whole item instead.
+function isTypingTarget(t) {
+    if (!t || !t.tagName) return false;
+    const tag = t.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable === true;
 }
 
 function isTailOnlyMarkers(text) {
@@ -2461,7 +2471,7 @@ function menuItemsFor(node) {
 
     items.push({ label: 'Zoom in', shortcut: 'Ctrl+]', action: () => zoomInto(node.id) });
     items.push({ label: node.note ? 'Edit note' : 'Add note', shortcut: 'Shift+Enter', action: () => openNoteEditor(node.id) });
-    items.push({ label: 'Delete', shortcut: 'Ctrl+Shift+Backspace', danger: true, action: () => deleteItem(node.id) });
+    items.push({ label: 'Delete', shortcut: 'Backspace', danger: true, action: () => deleteItem(node.id) });
     items.push('sep');
 
     items.push({ label: 'Delete checked items', action: () => deleteChecked() });
@@ -5784,6 +5794,7 @@ function wireOutline() {
 
     els.outline.addEventListener('keydown', (e) => {
         if (editing || e.defaultPrevented) return;
+        if (isTypingTarget(e.target)) return;
 
         if (e.ctrlKey) {
             const key = e.key.toLowerCase();
@@ -5891,6 +5902,21 @@ function wireOutline() {
             } else if (e.key === 'End') {
                 e.preventDefault();
                 if (flat.length) selectItem(flat[flat.length - 1].node.id);
+            }
+            return;
+        }
+
+        // A selected (not yet edited) item deletes on plain Backspace/Delete, the way
+        // Dynalist does it. `deleteItem` re-selects the following row, so holding the key
+        // keeps clearing items without another click -- which is why this needs no special
+        // key-repeat handling.
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+            if (multi.size > 1) {
+                e.preventDefault();
+                bulkDelete();
+            } else if (selectedId) {
+                e.preventDefault();
+                deleteItem(selectedId);
             }
             return;
         }
