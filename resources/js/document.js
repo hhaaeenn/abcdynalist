@@ -475,11 +475,14 @@ function parseClipboardItems(clipboardData) {
             const walk = (el, depth) => {
                 const children = [...el.children];
                 if (!children.length) return;
-                let hasNestedList = false;
-                for (const child of children) {
-                    const tag = child.tagName.toLowerCase();
-                    if (tag === 'ul' || tag === 'ol') { hasNestedList = true; break; }
-                }
+                // A source that structures its outline with nested <div>/<p> instead of real
+                // <ul>/<li> (common when copying from an app that renders its own outline as
+                // plain block elements) needs the same "own text, then recurse into nested
+                // blocks" treatment as <li> already gets below -- checking only for a nested
+                // ul/ol to decide whether to recurse used to miss that nesting entirely and
+                // fall through to `child.textContent`, which flattens the container's text
+                // AND its nested block's text into one string with no separator between them.
+                const isBlock = (t) => t === 'ul' || t === 'ol' || t === 'li' || t === 'div' || t === 'p';
                 for (const child of children) {
                     const tag = child.tagName.toLowerCase();
                     if (tag === 'ul' || tag === 'ol') {
@@ -491,13 +494,23 @@ function parseClipboardItems(clipboardData) {
                         }
                         const liText = textNodes.join('').trim();
                         if (liText) items.push({ content: liText.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
-                        const subList = child.querySelector('ul, ol');
-                        if (subList) walk(subList, depth + 1);
+                        const hasNested = [...child.children].some((c) => isBlock(c.tagName.toLowerCase()));
+                        if (hasNested) walk(child, liText ? depth + 1 : depth);
                     } else {
-                        const text = child.textContent.trim();
-                        if (text && !child.querySelector('ul, ol, li')) {
-                            items.push({ content: text.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
-                        } else {
+                        const textNodes = [];
+                        for (const node of child.childNodes) {
+                            if (node.nodeType === 3) textNodes.push(node.textContent);
+                        }
+                        const ownText = textNodes.join('').trim();
+                        if (ownText) {
+                            items.push({ content: ownText.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
+                        }
+                        const hasNested = [...child.children].some((c) => isBlock(c.tagName.toLowerCase()));
+                        if (hasNested) {
+                            walk(child, ownText ? depth + 1 : depth);
+                        } else if (!ownText) {
+                            // No own text and no block children (e.g. an inline wrapper) --
+                            // still worth a look in case it wraps text some other way.
                             walk(child, depth);
                         }
                     }
