@@ -4684,13 +4684,17 @@ function recordUndo({ coalesceKeyboard = false } = {}) {
 }
 
 async function restoreSnapshot(snap) {
+    // Instant, like every other action in this app: the user sees the undo happen right
+    // away instead of waiting on whatever is still in flight (a big paste's create batch,
+    // say) before the screen catches up.
+    applySnapshotLocal(snap);
     // The snapshot is authoritative: it lists every row that should exist, and the server
-    // soft-deletes anything missing from it. So any queued write must be discarded, not
-    // flushed -- otherwise a debounced edit (or a queued delete) would land after the
-    // restore and silently undo the user's own undo.
+    // soft-deletes anything missing from it. So any queued write must land first, not be
+    // discarded -- an item still being created has to actually exist before the server can
+    // correctly clean it up as "not in this snapshot". Only after that is the queue reset,
+    // so nothing queued afterward can land post-restore and silently undo the user's undo.
     await flushNow(docId).catch(() => {});
     resetQueue(docId);
-    applySnapshotLocal(snap);
     api.post(`/documents/${docId}/items-restore`, { items: snap }).catch(async (e) => {
         await loadItems();
         showFailedAlert(e.message);
