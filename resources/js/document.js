@@ -2378,6 +2378,36 @@ function buildTempNodeFromSnapshot(snap, parentId) {
  * flattened into one list (parents always ahead of their children), and the server mints
  * every real id and resolves the parent links itself in a single request.
  */
+
+// The server rejects a single items-create-batch call over this many rows (ItemController's
+// own BATCH_LIMIT). Anything bigger has to go out as several sequential requests instead.
+const CREATE_BATCH_LIMIT = 200;
+
+/**
+ * Send a flattened create list to items-create-batch, splitting it into
+ * CREATE_BATCH_LIMIT-sized requests when needed and sending them one at a time.
+ *
+ * Chunks are sequential, not parallel, for two reasons: a later chunk's `parent_id` can
+ * point at an earlier chunk's tmp_id (a parent and its children landing on opposite sides of
+ * a chunk boundary), which only resolves once that earlier chunk's response is known and its
+ * tmp ids get rewritten to real ones here; and `position` values are absolute across the
+ * whole list, which only inserts correctly if each chunk lands before the next is sent (the
+ * server appends by clamping an out-of-range position to "end of what exists so far").
+ */
+async function sendCreateBatchChunked(items) {
+    const merged = {};
+    for (let i = 0; i < items.length; i += CREATE_BATCH_LIMIT) {
+        const part = items.slice(i, i + CREATE_BATCH_LIMIT).map((it) => (
+            Object.prototype.hasOwnProperty.call(merged, it.parent_id)
+                ? { ...it, parent_id: merged[it.parent_id] }
+                : it
+        ));
+        const res = await api.post(`/documents/${docId}/items-create-batch`, { items: part });
+        Object.assign(merged, res.map || {});
+    }
+    return merged;
+}
+
 async function persistPastedTree(tempNodes, parentId, startPos) {
     const realParent = await resolveParentAsync(parentId);
 
@@ -2400,9 +2430,7 @@ async function persistPastedTree(tempNodes, parentId, startPos) {
 
     if (!items.length) return;
 
-    const batchPromise = api
-        .post(`/documents/${docId}/items-create-batch`, { items })
-        .then((res) => res.map || {});
+    const batchPromise = sendCreateBatchChunked(items);
 
     items.forEach((it) => registerPendingItem(it.tmp_id, batchPromise.then((map) => map[it.tmp_id] || null)));
 
@@ -4304,9 +4332,7 @@ async function createItemsBatch(nodes, parentId, startPos) {
         bullet: node.bullet || 'bullet',
     }));
 
-    const batchPromise = api
-        .post(`/documents/${docId}/items-create-batch`, { items })
-        .then((res) => res.map || {});
+    const batchPromise = sendCreateBatchChunked(items);
 
     items.forEach((it) => registerPendingItem(it.tmp_id, batchPromise.then((map) => map[it.tmp_id] || null)));
 
