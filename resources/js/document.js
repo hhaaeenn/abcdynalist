@@ -4702,7 +4702,11 @@ async function restoreSnapshot(snap) {
 }
 
 function undo() {
-    if (!docId || !undoStack.length) return;
+    // TEMP DIAGNOSTIC -- remove once the "undo doesn't remove a paste" bug is confirmed fixed.
+    console.log('[undo-debug] docId=', docId, 'undoStack.length=', undoStack.length,
+        'current items=', captureSnapshot().length,
+        'top-of-stack items=', undoStack.length ? undoStack[undoStack.length - 1].length : null);
+    if (!docId || !undoStack.length) { console.log('[undo-debug] bailing: no docId or empty stack'); return; }
     const snap = undoStack.pop();
     redoStack.push(captureSnapshot());
     restoreSnapshot(snap);
@@ -6120,6 +6124,9 @@ function wireOutline() {
                 if (selectedId) toggleItemBookmark(selectedId);
             } else if (key === 'z' && !e.shiftKey) {
                 e.preventDefault();
+                // TEMP DIAGNOSTIC -- remove once the "undo doesn't remove a paste" bug is
+                // confirmed fixed.
+                console.log('[undo-debug outline] docUndoIsNewest=', docUndoIsNewest());
                 if (docUndoIsNewest()) undoLastDocCreation();
                 else undo();
             } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
