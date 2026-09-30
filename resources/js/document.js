@@ -1084,13 +1084,23 @@ function buildRow(node, depth) {
                 const md = htmlToMarkdown(rawHtml);
                 if (md) ins = md;
             }
-            document.execCommand('insertText', false, ins);
+            // execCommand silently does nothing (no error, no thrown exception) if the
+            // selection it operates on isn't actually live inside this row when the paste
+            // event lands -- its own return value is the only signal that happened. Without
+            // checking it, that failure mode is a pasted line vanishing with no trace.
+            const inserted = document.execCommand('insertText', false, ins);
+            if (!inserted) {
+                await createItemAt(node.parent_id || null, siblingPosition(node) + 1, node.bullet, ins);
+            }
             return;
         }
         // Multi-line paste: first line goes into current item at caret,
-        // remaining lines become siblings after current item (like Dynalist.io)
-        document.execCommand('insertText', false, parsed[0].content);
-        const rest = parsed.slice(1);
+        // remaining lines become siblings after current item (like Dynalist.io) -- unless
+        // the caret-insert didn't actually land (see the single-line case above), in which
+        // case every line including the first becomes its own new sibling instead of the
+        // first one silently disappearing.
+        const firstInserted = document.execCommand('insertText', false, parsed[0].content);
+        const rest = firstInserted ? parsed.slice(1) : parsed;
         // Normalize indentation relative to first extra line
         const baseIndent = rest.reduce((min, p) => Math.min(min, p.indent), Infinity);
         rest.forEach(p => { p.indent -= baseIndent; });
