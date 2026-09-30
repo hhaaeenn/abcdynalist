@@ -1147,6 +1147,11 @@ function buildRow(node, depth) {
         recordUndo();
         const tempNodes = snapshots.map((snap) => buildTempNodeFromSnapshot(snap, curParentId));
         tempNodes.forEach((n, i) => insertNodeLocally(curParentId, curPos + 1 + i, n));
+        // Commit before render(), not after: render() itself auto-commits whatever is still
+        // `editing` right before it tears down the old DOM, and that auto-commit runs with
+        // no way to pass skipUndo -- it would otherwise record its own, second undo step for
+        // this same paste (recordUndo() above already covers all of it).
+        commitEdit(node.id, { skipUndo: true });
         buildFlat();
         applyZoomFilter();
         render();
@@ -1154,9 +1159,6 @@ function buildRow(node, depth) {
         if (lastTop) selectItem(lastTop.id);
 
         (async () => {
-            // recordUndo() already ran above, before the caret-insert and the sibling
-            // creation -- this commit is part of that same paste, not a separate edit.
-            commitEdit(node.id, { skipUndo: true });
             try {
                 await persistPastedTree(tempNodes, curParentId, curPos + 1);
             } catch (e) {
