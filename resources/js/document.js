@@ -1154,7 +1154,9 @@ function buildRow(node, depth) {
         if (lastTop) selectItem(lastTop.id);
 
         (async () => {
-            commitEdit(node.id);
+            // recordUndo() already ran above, before the caret-insert and the sibling
+            // creation -- this commit is part of that same paste, not a separate edit.
+            commitEdit(node.id, { skipUndo: true });
             try {
                 await persistPastedTree(tempNodes, curParentId, curPos + 1);
             } catch (e) {
@@ -3362,7 +3364,7 @@ function ensureEditing(id) {
  * in-flight update could land after a delete and raise "Item not found" at the user.
  * Every caller only ever needed the local effect, so nothing has to await this anymore.
  */
-function commitEdit(id) {
+function commitEdit(id, { skipUndo = false } = {}) {
     const rec = rows.get(id);
     if (!rec) return false;
     editing = false;
@@ -3372,7 +3374,11 @@ function commitEdit(id) {
     if (value === (rec.node.content || '')) {
         return false;
     }
-    recordUndo();
+    // A caller that already recorded undo for a larger operation this commit is just one
+    // part of (e.g. pasting into the current item's caret, which also creates sibling rows
+    // in the same atomic action) passes skipUndo so this doesn't add a second, redundant
+    // undo step that a single Ctrl+Z can't fully unwind in one go.
+    if (!skipUndo) recordUndo();
     rec.node.content = value;
     rec.text.innerHTML = contentHtml(value);
     wireInlineImages(rec.text, id);
@@ -4709,11 +4715,7 @@ async function restoreSnapshot(snap) {
 }
 
 function undo() {
-    // TEMP DIAGNOSTIC -- remove once the "undo doesn't remove a paste" bug is confirmed fixed.
-    console.log('[undo-debug] docId=', docId, 'undoStack.length=', undoStack.length,
-        'current items=', captureSnapshot().length,
-        'top-of-stack items=', undoStack.length ? undoStack[undoStack.length - 1].length : null);
-    if (!docId || !undoStack.length) { console.log('[undo-debug] bailing: no docId or empty stack'); return; }
+    if (!docId || !undoStack.length) return;
     const snap = undoStack.pop();
     redoStack.push(captureSnapshot());
     restoreSnapshot(snap);
@@ -6125,9 +6127,6 @@ function wireOutline() {
                 if (selectedId) toggleItemBookmark(selectedId);
             } else if (key === 'z' && !e.shiftKey) {
                 e.preventDefault();
-                // TEMP DIAGNOSTIC -- remove once the "undo doesn't remove a paste" bug is
-                // confirmed fixed.
-                console.log('[undo-debug outline] docUndoIsNewest=', docUndoIsNewest());
                 if (docUndoIsNewest()) undoLastDocCreation();
                 else undo();
             } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
