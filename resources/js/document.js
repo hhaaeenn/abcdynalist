@@ -483,32 +483,44 @@ function parseClipboardItems(clipboardData) {
                 // fall through to `child.textContent`, which flattens the container's text
                 // AND its nested block's text into one string with no separator between them.
                 const isBlock = (t) => t === 'ul' || t === 'ol' || t === 'li' || t === 'div' || t === 'p';
+                // A <li> or <div>/<p> can hold several logical lines separated by <br> instead
+                // of separate elements (e.g. "The Essentials List<br>Check things off after
+                // you have tried them" as ONE <li>). Reading childNodes' text naively joins
+                // them into one run-on string; splitting on <br> and returning each non-empty
+                // segment as its own line is what text/plain already does for this exact case
+                // (confirmed against a real clipboard sample) -- both lines become items at
+                // this container's own depth, siblings of each other.
+                const ownLines = (el) => {
+                    const lines = [];
+                    let cur = '';
+                    for (const node of el.childNodes) {
+                        if (node.nodeType === 3) {
+                            cur += node.textContent;
+                        } else if (node.nodeType === 1 && node.tagName.toLowerCase() === 'br') {
+                            lines.push(cur);
+                            cur = '';
+                        }
+                    }
+                    lines.push(cur);
+                    return lines.map((l) => l.trim()).filter(Boolean);
+                };
+                const clean = (s) => s.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, '');
                 for (const child of children) {
                     const tag = child.tagName.toLowerCase();
                     if (tag === 'ul' || tag === 'ol') {
                         walk(child, depth);
                     } else if (tag === 'li') {
-                        const textNodes = [];
-                        for (const node of child.childNodes) {
-                            if (node.nodeType === 3) textNodes.push(node.textContent);
-                        }
-                        const liText = textNodes.join('').trim();
-                        if (liText) items.push({ content: liText.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
+                        const lines = ownLines(child);
+                        lines.forEach((line) => items.push({ content: clean(line), indent: depth }));
                         const hasNested = [...child.children].some((c) => isBlock(c.tagName.toLowerCase()));
-                        if (hasNested) walk(child, liText ? depth + 1 : depth);
+                        if (hasNested) walk(child, lines.length ? depth + 1 : depth);
                     } else {
-                        const textNodes = [];
-                        for (const node of child.childNodes) {
-                            if (node.nodeType === 3) textNodes.push(node.textContent);
-                        }
-                        const ownText = textNodes.join('').trim();
-                        if (ownText) {
-                            items.push({ content: ownText.replace(/^[-*â€¢]\s+/, '').replace(/^\d+[.)]\s+/, ''), indent: depth });
-                        }
+                        const lines = ownLines(child);
+                        lines.forEach((line) => items.push({ content: clean(line), indent: depth }));
                         const hasNested = [...child.children].some((c) => isBlock(c.tagName.toLowerCase()));
                         if (hasNested) {
-                            walk(child, ownText ? depth + 1 : depth);
-                        } else if (!ownText) {
+                            walk(child, lines.length ? depth + 1 : depth);
+                        } else if (!lines.length) {
                             // No own text and no block children (e.g. an inline wrapper) --
                             // still worth a look in case it wraps text some other way.
                             walk(child, depth);
@@ -1083,11 +1095,6 @@ function buildRow(node, depth) {
         e.preventDefault();
         e.stopPropagation();
         const parsed = parseClipboardItems(e.clipboardData);
-        // TEMP DIAGNOSTIC -- remove once the "first line sometimes missing" paste bug is
-        // confirmed fixed.
-        console.log('[paste-debug row] html=', e.clipboardData.getData('text/html'));
-        console.log('[paste-debug row] text=', e.clipboardData.getData('text/plain'));
-        console.log('[paste-debug row] parsed=', JSON.parse(JSON.stringify(parsed)));
         if (!parsed.length) return;
         // Single line: just insert into current item at caret
         if (parsed.length === 1) {
@@ -5909,12 +5916,6 @@ function wireOutline() {
             return;
         }
         const parsed = parseClipboardItems(e.clipboardData);
-        // TEMP DIAGNOSTIC -- remove once the "first line sometimes missing" paste bug is
-        // confirmed fixed. Logs exactly what the parser produced and what it was fed.
-        console.log('[paste-debug] html=', e.clipboardData.getData('text/html'));
-        console.log('[paste-debug] text=', e.clipboardData.getData('text/plain'));
-        console.log('[paste-debug] parsed=', JSON.parse(JSON.stringify(parsed)));
-        console.log('[paste-debug] selectedId=', selectedId, 'rowExists=', !!(selectedId && rows.get(selectedId)));
         if (!parsed.length) return;
         e.preventDefault();
         const selRec = selectedId ? rows.get(selectedId) : null;
