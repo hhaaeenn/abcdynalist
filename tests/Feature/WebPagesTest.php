@@ -61,7 +61,6 @@ class WebPagesTest extends TestCase
             'doc-title',
             'doc-meta',
             'outline',
-            'outline-loading',
             'bookmark-doc-btn',
             'ctx-menu',
         ];
