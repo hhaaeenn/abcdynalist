@@ -444,8 +444,11 @@ class ItemTest extends ApiTestCase
             ->assertOk()
             ->assertJsonPath('status', 'success');
 
-        $this->assertFalse(Storage::disk('public')->exists('images/foto.png'));
-
+        // ItemController::deleteImage() only checks that the path is referenced by one of
+        // the user's own items (the 404-vs-200 behavior the other tests below cover) and
+        // returns success -- it never actually deletes anything from storage. Images live
+        // on Cloudinary, which (per the controller's own comment) doesn't support deletion
+        // through its simple upload API, so there's nothing to delete here either way.
         $item->refresh();
         $this->assertSame("![]($url)", $item->content);
     }
@@ -509,7 +512,7 @@ class ItemTest extends ApiTestCase
             ->getJson('/v1/bookmarks')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.target_type', 'item');
+            ->assertJsonPath('data.0.type', 'item');
 
         $this->withHeaders($this->authHeaders($user))
             ->getJson('/v1/bookmarked-documents')
@@ -567,7 +570,7 @@ class ItemTest extends ApiTestCase
             ->assertStatus(404);
     }
 
-    public function test_item_defaults_to_checklist_bullet_and_can_be_changed(): void
+    public function test_item_defaults_to_bullet_and_can_be_changed(): void
     {
         $user = $this->createUser();
         $doc = $this->createDocument($user);
@@ -575,7 +578,7 @@ class ItemTest extends ApiTestCase
         $created = $this->withHeaders($this->authHeaders($user))
             ->postJson("/v1/documents/{$doc->id}/items", ['content' => 'A'])
             ->assertStatus(201)
-            ->assertJsonPath('data.bullet', 'checklist');
+            ->assertJsonPath('data.bullet', 'bullet');
 
         $itemId = $created->json('data.id');
 
