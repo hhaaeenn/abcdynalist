@@ -328,7 +328,7 @@ class ItemController extends Controller
         // used to stash arbitrary files or run up storage costs. svg/bmp are excluded: svg
         // can carry an embedded <script>, and nothing here needs it.
         $request->validate([
-            'image' => ['required', 'file', 'mimes:jpeg,jpg,png,gif,webp', 'max:10240'],
+            'image' => ['required', 'file', 'mimes:jpeg,jpg,png,gif,webp', 'max:15360'],
         ]);
 
         $storage = app(ImageStorage::class);
