@@ -1,10 +1,10 @@
 import { api, registerPendingItem, unregisterPendingItem, awaitTempId } from './api';
-import { queueCreate, queuePatch, queuePatches, queueStructure, queueMoves, queueDelete, flushNow, whenSettled, hasPending, dropPending, resetQueue } from './write-queue';
+import { queueCreate, queuePatch, queuePatches, queueStructure, queueMoves, queueDelete, flushNow, dropPending, resetQueue } from './write-queue';
 import { toast } from './ui';
 import { store } from './store';
 import { showSuccess, showFailedAlert, esc, showPopupWithAction } from './alerts';
 import Swal from 'sweetalert2';
-import { loadTree, highlightDocument, findNode, findInbox, undoLastDocCreation } from './sidebar';
+import { loadTree, findNode, findInbox, undoLastDocCreation } from './sidebar';
 import { loadBookmarks } from './bookmarks';
 import { markItemOp, docUndoIsNewest } from './ops';
 import { applyTo as applyTagColors, getColor as getTagColor } from './tag-colors';
@@ -137,14 +137,14 @@ let menuEl;
 const SVG = {
     check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="w-3 h-3"><path d="M20 6 9 17l-5-5"/></svg>',
     trash: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
-    star: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px]"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
-    starFilled: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[18px] h-[18px]"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
+    star: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4.5 h-4.5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
+    starFilled: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4.5 h-4.5"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
     dots: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>',
     zoom: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>',
     zoomOut: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="M5 12h14"/></svg>',
     chevron: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="m6 9 6 6 6-6"/></svg>',
     note: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5"><path d="M4 4h16v12H8l-4 4z"/></svg>',
-    clock: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-[15px] h-[15px]"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>',
+    clock: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-3.75 h-3.75"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>',
 };
 
 function escapeHtml(s) {
@@ -772,7 +772,7 @@ function buildRow(node, depth) {
         bullet = document.createElement('button');
         bullet.type = 'button';
         bullet.draggable = true;
-        bullet.className = 'bullet item-checkbox shrink-0 w-[15px] h-[15px] flex items-center justify-center rounded-[3px] border transition-all cursor-pointer';
+        bullet.className = 'bullet item-checkbox shrink-0 w-3.75 h-3.75 flex items-center justify-center rounded-[3px] border transition-all cursor-pointer';
         if (node.checked) bullet.classList.add('checked');
         else bullet.classList.add('unchecked');
         bullet.title = node.checked ? 'Klik untuk batal tandai Â· seret untuk memindahkan' : 'Klik untuk tandai selesai Â· seret untuk memindahkan';
@@ -1228,19 +1228,6 @@ function insertImageAtCaret(container, src) {
     } else {
         container.append(img);
     }
-}
-
-function placeCaretAfterImage(id) {
-    const rec = rows.get(id);
-    if (!rec) return;
-    const img = rec.text.querySelector('img.item-inline-img');
-    if (!img) return;
-    const range = document.createRange();
-    range.setStartAfter(img);
-    range.collapse(true);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
 }
 
 async function uploadImage(file) {
@@ -3835,7 +3822,7 @@ async function mergeItems(keepId, dropId, junction) {
     const merged = a && b ? `${a.trimEnd()} ${b.trimStart()}` : a + b;
     const children = flat.filter((f) => f.node.parent_id === drop.node.id).map((f) => f.node);
     const keepStart = childCount(keepId);
-    children.forEach((c, i) => { c.parent_id = keepId; });
+    children.forEach((c) => { c.parent_id = keepId; });
     keep.node.content = merged;
     removeNodeLocally(dropId);
     buildFlat(); applyZoomFilter(); render(); selectItem(keepId); startEdit(keepId);
@@ -4021,7 +4008,6 @@ async function indent(id) {
     if (idx <= 0) return toast('Tidak bisa indent');
     const prevSibling = siblings[idx - 1].node;
     recordUndo();
-    const oldParentId = node.parent_id || null;
     removeNodeLocally(id);
     prevSibling.children = prevSibling.children || [];
     node.parent_id = prevSibling.id;
@@ -5283,7 +5269,7 @@ function replaceAcRange(container, start, end, text) {
     sel.addRange(range);
 }
 
-function acShowAtCaret(textEl) {
+function acShowAtCaret() {
     const sel = window.getSelection();
     let rect = null;
     if (sel && sel.rangeCount) {
@@ -5439,7 +5425,7 @@ function acInsertDate(value) {
     ac.node.focus();
 }
 
-async function updateAutocomplete(textEl, id) {
+async function updateAutocomplete(textEl) {
     ensureAcEl();
     if (!editing) {
         acHide();
