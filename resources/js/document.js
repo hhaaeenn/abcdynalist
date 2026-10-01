@@ -3711,6 +3711,26 @@ function handleEditKey(e, id) {
                 commitEdit(id); mergeItems(id, next);
             }
         }
+    } else if (e.key === 'ArrowUp' && !e.shiftKey) {
+        // Plain Up at the very start of this item's text moves to the previous rendered row
+        // and keeps editing there -- nav() does both. Anywhere else in the text (relevant
+        // for a multi-line item made with Ctrl+Shift+Enter), the browser's own caret-up
+        // inside the text takes over instead, same as a normal text editor.
+        const recText = rows.get(id)?.text;
+        if (recText && isCaretAtStart(recText)) {
+            e.preventDefault();
+            e.stopPropagation();
+            commitEdit(id);
+            nav(-1);
+        }
+    } else if (e.key === 'ArrowDown' && !e.shiftKey) {
+        const recText = rows.get(id)?.text;
+        if (recText && isCaretAtEnd(recText)) {
+            e.preventDefault();
+            e.stopPropagation();
+            commitEdit(id);
+            nav(1);
+        }
     }
 }
 
