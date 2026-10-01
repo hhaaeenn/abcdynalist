@@ -3523,7 +3523,23 @@ function handleEditKey(e, id) {
     }
     if (e.ctrlKey) {
         const key = e.key.toLowerCase();
-        if (key === 'enter' && e.shiftKey) {
+        if (key === 'a' && e.shiftKey) {
+            // Ctrl+Shift+A (select everything) and Ctrl+A (select one level up) are pure
+            // multi-select actions with no caret -- same as Ctrl+Up/Down below, commit this
+            // row's edit first so leaving edit mode and entering block-select happens
+            // together, not as two separate steps the user has to trigger.
+            e.preventDefault();
+            e.stopPropagation();
+            commitEdit(id);
+            multi.clear();
+            flat.forEach((f) => multi.add(f.node.id));
+            refreshHighlights();
+        } else if (key === 'a') {
+            e.preventDefault();
+            e.stopPropagation();
+            commitEdit(id);
+            selectUpward();
+        } else if (key === 'enter' && e.shiftKey) {
             e.preventDefault();
             e.stopPropagation();
             insertLineBreak(rows.get(id)?.text);
@@ -3711,6 +3727,18 @@ function handleEditKey(e, id) {
                 commitEdit(id); mergeItems(id, next);
             }
         }
+    } else if (e.key === 'ArrowUp' && e.shiftKey) {
+        // Shift+Up/Down is a pure block-select, same reasoning as Ctrl+A/Ctrl+Shift+A above:
+        // commit out of edit mode first so the selection starts clean.
+        e.preventDefault();
+        e.stopPropagation();
+        commitEdit(id);
+        extendSelect('up');
+    } else if (e.key === 'ArrowDown' && e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        commitEdit(id);
+        extendSelect('down');
     } else if (e.key === 'ArrowUp' && !e.shiftKey) {
         // Plain Up at the very start of this item's text moves to the previous rendered row
         // and keeps editing there -- nav() does both. Anywhere else in the text (relevant
