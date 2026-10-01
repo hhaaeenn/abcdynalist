@@ -2053,6 +2053,10 @@ class ItemController extends Controller
     private function collectDescendantIdsForMany($documentId, array $seedIds): array
     {
         $queue = array_values(array_unique($seedIds));
+        // Tracks every id ever enqueued (seeds included) so a corrupted parent_id cycle
+        // can't feed the same id back into $queue forever -- once nothing in a level is
+        // actually new, the walk stops instead of spinning.
+        $seen = array_flip($queue);
         $found = [];
 
         while (! empty($queue)) {
@@ -2061,13 +2065,22 @@ class ItemController extends Controller
                 ->get();
 
             $childIds = $children->pluck('id')->map(fn ($v) => (string) $v)->all();
+            $newIds = array_values(array_diff($childIds, array_keys($seen)));
 
-            if (empty($childIds)) {
+            if (empty($newIds)) {
                 break;
             }
 
-            $found = array_merge($found, $childIds);
-            $queue = array_values(array_diff($childIds, $found));
+            foreach ($newIds as $newId) {
+                $seen[$newId] = true;
+            }
+            $found = array_merge($found, $newIds);
+            // Next level's seeds are the children just found. The previous version reused
+            // $childIds diffed against $found *after* merging $childIds into it, which is
+            // always empty -- the BFS stopped after one level, so deleting a 3-level subtree
+            // (root -> child -> grandchild) only reached the direct children and silently
+            // left grandchildren (and deeper) behind, un-deleted.
+            $queue = $newIds;
         }
 
         return $found;
