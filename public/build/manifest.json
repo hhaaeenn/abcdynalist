@@ -1,4 +1,12 @@
 {
+  "_katex-1DpKqLSe.js": {
+    "file": "assets/katex-1DpKqLSe.js",
+    "name": "katex"
+  },
+  "_sweetalert2-0Z_61IYw.js": {
+    "file": "assets/sweetalert2-0Z_61IYw.js",
+    "name": "sweetalert2"
+  },
   "node_modules/katex/dist/fonts/KaTeX_AMS-Regular.ttf": {
     "file": "assets/KaTeX_AMS-Regular-DRggAlZN.ttf",
     "src": "node_modules/katex/dist/fonts/KaTeX_AMS-Regular.ttf"
@@ -245,10 +253,14 @@
     "isEntry": true
   },
   "resources/js/app.js": {
-    "file": "assets/app-BzUMaFPP.js",
+    "file": "assets/app-B6XyP23r.js",
     "name": "app",
     "src": "resources/js/app.js",
     "isEntry": true,
+    "imports": [
+      "_sweetalert2-0Z_61IYw.js",
+      "_katex-1DpKqLSe.js"
+    ],
     "css": [
       "assets/app-DoeQ-vI3.css"
     ],
