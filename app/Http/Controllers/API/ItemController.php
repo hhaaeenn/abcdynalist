@@ -323,6 +323,14 @@ class ItemController extends Controller
             ], 404);
         }
 
+        // Checks the file's actual content signature (not just its client-supplied name/
+        // extension, which is trivially spoofable) and caps size so this endpoint can't be
+        // used to stash arbitrary files or run up storage costs. svg/bmp are excluded: svg
+        // can carry an embedded <script>, and nothing here needs it.
+        $request->validate([
+            'image' => ['required', 'file', 'mimes:jpeg,jpg,png,gif,webp', 'max:10240'],
+        ]);
+
         $storage = app(ImageStorage::class);
 
         try {
