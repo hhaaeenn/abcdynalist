@@ -157,8 +157,12 @@ class DocumentTransfer
 
     public static function fromOpml(string $text): array
     {
+        // LIBXML_NONET blocks network access during parsing -- defense in depth against XXE.
+        // libxml2 >= 2.9 (verified: this project's 2.10.3) already disables external entity
+        // loading and entity-expansion loops by default, so this isn't closing an active
+        // hole, just not relying solely on that default for untrusted, user-uploaded XML.
         $prev = libxml_use_internal_errors(true);
-        $xml = simplexml_load_string($text);
+        $xml = simplexml_load_string($text, 'SimpleXMLElement', LIBXML_NONET);
         libxml_use_internal_errors($prev);
 
         if ($xml === false) {
