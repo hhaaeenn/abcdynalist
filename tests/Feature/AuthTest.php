@@ -9,7 +9,7 @@ class AuthTest extends ApiTestCase
 {
     public function test_register_creates_user_inbox_and_token(): void
     {
-        $response = $this->postJson('/api/auth/register', [
+        $response = $this->postJson('/v1/auth/register', [
             'name' => 'New User',
             'email' => 'new@example.com',
             'password' => 'secret123',
@@ -32,7 +32,7 @@ class AuthTest extends ApiTestCase
     {
         $this->createUser(['email' => 'dup@example.com']);
 
-        $this->postJson('/api/auth/register', [
+        $this->postJson('/v1/auth/register', [
             'name' => 'Dup User',
             'email' => 'dup@example.com',
             'password' => 'secret123',
@@ -42,7 +42,7 @@ class AuthTest extends ApiTestCase
 
     public function test_register_rejects_mismatched_password_confirmation(): void
     {
-        $this->postJson('/api/auth/register', [
+        $this->postJson('/v1/auth/register', [
             'name' => 'New User',
             'email' => 'new2@example.com',
             'password' => 'secret123',
@@ -54,7 +54,7 @@ class AuthTest extends ApiTestCase
     {
         $user = $this->createUser(['email' => 'login@example.com']);
 
-        $login = $this->postJson('/api/auth/login', [
+        $login = $this->postJson('/v1/auth/login', [
             'email' => 'login@example.com',
             'password' => 'password123',
         ])->assertOk()
@@ -64,7 +64,7 @@ class AuthTest extends ApiTestCase
         $this->assertNotNull($token);
 
         $this->withHeader('Authorization', 'Bearer '.$token)
-            ->getJson('/api/auth/me')
+            ->getJson('/v1/auth/me')
             ->assertOk()
             ->assertJsonPath('user.email', 'login@example.com');
     }
@@ -73,7 +73,7 @@ class AuthTest extends ApiTestCase
     {
         $this->createUser(['email' => 'login2@example.com']);
 
-        $this->postJson('/api/auth/login', [
+        $this->postJson('/v1/auth/login', [
             'email' => 'login2@example.com',
             'password' => 'wrong-password',
         ])->assertStatus(401);
@@ -84,17 +84,17 @@ class AuthTest extends ApiTestCase
         $user = $this->createUser();
         $headers = $this->authHeaders($user);
 
-        $this->withHeaders($headers)->postJson('/api/auth/logout')->assertOk();
+        $this->withHeaders($headers)->postJson('/v1/auth/logout')->assertOk();
 
         $this->assertSame(0, $user->tokens()->count());
 
         $this->app['auth']->forgetGuards();
 
-        $this->withHeaders($headers)->getJson('/api/auth/me')->assertStatus(401);
+        $this->withHeaders($headers)->getJson('/v1/auth/me')->assertStatus(401);
     }
 
     public function test_protected_routes_require_token(): void
     {
-        $this->getJson('/api/documents')->assertStatus(401);
+        $this->getJson('/v1/documents')->assertStatus(401);
     }
 }

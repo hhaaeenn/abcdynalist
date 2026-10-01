@@ -14,7 +14,7 @@ class DocumentTest extends ApiTestCase
         $this->createDocument($user, ['name' => 'Child', 'parent_id' => $folder->id, 'sort_order' => 0]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->getJson('/api/documents')
+            ->getJson('/v1/documents')
             ->assertOk()
             ->assertJsonPath('data.0.name', 'Folder')
             ->assertJsonPath('data.0.children.0.name', 'Child');
@@ -28,7 +28,7 @@ class DocumentTest extends ApiTestCase
         $userB = $this->createUser(['email' => 'b@example.com']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->getJson('/api/documents')
+            ->getJson('/v1/documents')
             ->assertOk()
             ->assertJsonCount(0, 'data');
     }
@@ -39,7 +39,7 @@ class DocumentTest extends ApiTestCase
         $folder = $this->createDocument($user, ['type' => 'folder', 'name' => 'Folder']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson('/api/documents', [
+            ->postJson('/v1/documents', [
                 'type' => 'document',
                 'name' => 'Inside',
                 'parent_id' => $folder->id,
@@ -59,7 +59,7 @@ class DocumentTest extends ApiTestCase
         $doc = $this->createDocument($user, ['name' => 'Plain Document']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson('/api/documents', [
+            ->postJson('/v1/documents', [
                 'type' => 'document',
                 'name' => 'Bad',
                 'parent_id' => $doc->id,
@@ -72,7 +72,7 @@ class DocumentTest extends ApiTestCase
         $doc = $this->createDocument($user, ['name' => 'Before']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->patchJson("/api/documents/{$doc->id}", ['name' => 'After'])
+            ->patchJson("/v1/documents/{$doc->id}", ['name' => 'After'])
             ->assertOk()
             ->assertJsonPath('data.name', 'After');
     }
@@ -84,7 +84,7 @@ class DocumentTest extends ApiTestCase
         $doc = $this->createDocument($user, ['name' => 'Move Me']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$doc->id}/move", ['parent_id' => $folder->id])
+            ->postJson("/v1/documents/{$doc->id}/move", ['parent_id' => $folder->id])
             ->assertOk()
             ->assertJsonPath('data.parent_id', $folder->id);
     }
@@ -98,7 +98,7 @@ class DocumentTest extends ApiTestCase
         $ids = Document::where('user_id', $user->id)->orderBy('sort_order')->pluck('id')->all();
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$ids[0]}/sort", ['order' => 'name_asc'])
+            ->postJson("/v1/documents/{$ids[0]}/sort", ['order' => 'name_asc'])
             ->assertOk();
 
         $names = Document::where('user_id', $user->id)->orderBy('sort_order')->pluck('name')->all();
@@ -119,7 +119,7 @@ class DocumentTest extends ApiTestCase
         ]);
 
         $this->withHeaders($this->authHeaders($user))
-            ->deleteJson("/api/documents/{$folder->id}")
+            ->deleteJson("/v1/documents/{$folder->id}")
             ->assertOk();
 
         $this->assertSoftDeleted('documents', ['id' => $folder->id]);
@@ -135,12 +135,12 @@ class DocumentTest extends ApiTestCase
         $docB = $this->createDocument($user, ['name' => 'B']);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$docA->id}/set-inbox", ['is_inbox' => true])
+            ->postJson("/v1/documents/{$docA->id}/set-inbox", ['is_inbox' => true])
             ->assertOk()
             ->assertJsonPath('data.is_inbox', true);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$docB->id}/set-inbox", ['is_inbox' => true])
+            ->postJson("/v1/documents/{$docB->id}/set-inbox", ['is_inbox' => true])
             ->assertOk()
             ->assertJsonPath('data.is_inbox', true);
 
@@ -148,7 +148,7 @@ class DocumentTest extends ApiTestCase
         $this->assertFalse((bool) Document::find($docA->id)->is_inbox);
 
         $this->withHeaders($this->authHeaders($user))
-            ->postJson("/api/documents/{$docB->id}/set-inbox", ['is_inbox' => false])
+            ->postJson("/v1/documents/{$docB->id}/set-inbox", ['is_inbox' => false])
             ->assertOk()
             ->assertJsonPath('data.is_inbox', false);
     }
@@ -161,7 +161,7 @@ class DocumentTest extends ApiTestCase
         $userB = $this->createUser(['email' => 'b@example.com']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->postJson("/api/documents/{$docA->id}/set-inbox", ['is_inbox' => true])
+            ->postJson("/v1/documents/{$docA->id}/set-inbox", ['is_inbox' => true])
             ->assertStatus(404);
     }
 
@@ -173,7 +173,7 @@ class DocumentTest extends ApiTestCase
         $userB = $this->createUser(['email' => 'b@example.com']);
 
         $this->withHeaders($this->authHeaders($userB))
-            ->deleteJson("/api/documents/{$docA->id}")
+            ->deleteJson("/v1/documents/{$docA->id}")
             ->assertStatus(404);
 
         $this->assertNotNull(Document::find($docA->id));
