@@ -683,9 +683,18 @@ function contentHtml(content) {
     const escaped = pre.replace(/[&<>"']/g, (c) => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
     ));
+    // Only turn a markdown image/link into a real <img>/<a> when its URL uses a scheme that
+    // can't run script (javascript:, data:text/html, ...) -- content is just text typed or
+    // pasted into an item, so anything written there has to be treated as untrusted input
+    // the moment it's turned into a real tag with a real href/src.
+    const isSafeImgUrl = (url) => /^(https?:|blob:|data:image\/|\/)/i.test(url.trim());
+    const isSafeLinkUrl = (url) => /^(https?:|mailto:|\/|#)/i.test(url.trim());
     let html = escaped
-        .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,
-            '<img src="$2" alt="$1" class="item-inline-img my-1 max-w-full h-auto rounded-md block">')
+        .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) => (
+            isSafeImgUrl(url)
+                ? `<img src="${url}" alt="${alt}" class="item-inline-img my-1 max-w-full h-auto rounded-md block">`
+                : m
+        ))
         .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g,
             '<span class="internal-link" data-id="$2">$1</span>')
         .replace(/```([\s\S]*?)```/g, '<pre class="md-codeblock">$1</pre>')
@@ -697,8 +706,11 @@ function contentHtml(content) {
         .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
         .replace(/(^|[^#!])([!@]\d{4}-\d{2}-\d{2})/g, '$1<span class="item-date">$2</span>')
         .replace(/(^|[^#])(#[A-Za-z0-9_-]+)/g, '$1<span class="item-tag">$2</span>')
-        .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g,
-            '<a href="$2" target="_blank" rel="noopener" class="md-link">$1</a>')
+        .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, text, url) => (
+            isSafeLinkUrl(url)
+                ? `<a href="${url}" target="_blank" rel="noopener" class="md-link">${text}</a>`
+                : m
+        ))
         .replace(/\n/g, '<br>');
     // URL storage absolut (mis. http://localhost:8000/storage/...) diubah jadi path relatif
     // agar gambar tetap termuat saat aplikasi dibuka dari host lain (deploy/LAN).

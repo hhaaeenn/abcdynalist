@@ -129,8 +129,28 @@ class ShareController extends Controller
         $html = preg_replace('/(^|[^*])\*([^*\n]+)\*/', '$1<em>$2</em>', $html);
         $html = preg_replace('/(^|[^#!])([!@]\d{4}-\d{2}-\d{2})/', '$1<span class="sh-date">$2</span>', $html);
         $html = preg_replace('/(^|[^#])(#[A-Za-z0-9_-]+)/', '$1<span class="sh-tag">$2</span>', $html);
-        $html = preg_replace('/!\[([^\]]*)\]\(([^)\s]+)\)/', '<img src="$2" alt="$1" class="sh-img" loading="lazy">', $html);
-        $html = preg_replace('/\[([^\]\n]+)\]\(([^)\s]+)\)/', '<a href="$2" target="_blank" rel="noopener" class="sh-link">$1</a>', $html);
+        // Only turn a markdown link/image into a real <a>/<img> when its URL is http(s),
+        // mailto, or relative -- otherwise leave the markdown source as plain (already
+        // escaped) text. This is a public, unauthenticated page anyone with the link can
+        // open, so a javascript: URL here would run in a visitor's browser the moment they
+        // clicked what looks like an ordinary link.
+        $isSafeUrl = function (string $url): bool {
+            $url = trim(html_entity_decode($url, ENT_QUOTES, 'UTF-8'));
+            if ($url === '') {
+                return false;
+            }
+            if ($url[0] === '/' || $url[0] === '#') {
+                return true;
+            }
+
+            return (bool) preg_match('/^(https?|mailto):/i', $url);
+        };
+        $html = preg_replace_callback('/!\[([^\]]*)\]\(([^)\s]+)\)/', function ($m) use ($isSafeUrl) {
+            return $isSafeUrl($m[2]) ? '<img src="'.$m[2].'" alt="'.$m[1].'" class="sh-img" loading="lazy">' : $m[0];
+        }, $html);
+        $html = preg_replace_callback('/\[([^\]\n]+)\]\(([^)\s]+)\)/', function ($m) use ($isSafeUrl) {
+            return $isSafeUrl($m[2]) ? '<a href="'.$m[2].'" target="_blank" rel="noopener" class="sh-link">'.$m[1].'</a>' : $m[0];
+        }, $html);
         $html = preg_replace('/\[\[([^\]|]+)\|([^\]]+)\]\]/', '<span class="sh-internal">$1</span>', $html);
         $html = preg_replace('/\n/', '<br>', $html);
 
