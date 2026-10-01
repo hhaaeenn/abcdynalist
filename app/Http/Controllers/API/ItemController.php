@@ -1351,13 +1351,20 @@ class ItemController extends Controller
         $out = [];
         $queue = $childrenOf[$id] ?? [];
 
-        while (! empty($queue)) {
-            foreach ($queue as $childId) {
-                if (in_array($childId, $out, true)) {
-                    continue;
-                }
-                $out[] = $childId;
-                $queue = array_merge($queue, $childrenOf[$childId] ?? []);
+        // array_shift actually drains the queue. The previous version iterated $queue with
+        // foreach while also reassigning it inside the loop -- foreach snapshots the array
+        // it started with, so appending children never fed back into that pass, and nothing
+        // was ever removed, so the queue could never become empty: any id with at least one
+        // child spun this in an infinite loop pegging the CPU, which is exactly what moving
+        // an item with children into moveBatch's own-subtree check used to trigger.
+        while ($queue) {
+            $childId = array_shift($queue);
+            if (in_array($childId, $out, true)) {
+                continue;
+            }
+            $out[] = $childId;
+            foreach ($childrenOf[$childId] ?? [] as $grandchild) {
+                $queue[] = $grandchild;
             }
         }
 
